@@ -1,0 +1,336 @@
+// ═══════════════════════════════════════════════════════════════
+//  SHETTIHALLI NATURALS — app.js
+//  Products load from Google Sheet (published as CSV/JSON)
+//  Orders go via WhatsApp deep link
+// ═══════════════════════════════════════════════════════════════
+
+// ── CONFIG — change these two lines ──────────────────────────
+const WA_NUMBER    = "919876543210";   // Your WhatsApp number (no +)
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTu_9vQWCquS52J_GrYcCLoGRwDCe9HUykCqqniSYNnuHj1Ge9a76H_M8j_uDNEdQ6xCiKIAB-WDY-X/pub?output=csv";              // Paste your Google Sheet CSV URL here
+//   How to get it: Sheet → File → Share → Publish to web → CSV → Copy URL
+// ─────────────────────────────────────────────────────────────
+
+// Fallback products (used when Sheet URL is empty or fails)
+const FALLBACK_PRODUCTS = [
+  { id:"1", name:"Alphonso Mangoes",    category:"mango",      price:850,  originalPrice:1100, unit:"per dozen",       shortDesc:"The king of mangoes. Sun-ripened, handpicked from our orchards.", image:"https://images.unsplash.com/photo-1601493700631-2b16ec4b4716?w=600&q=80", badge:"Bestseller",       inStock:true,  stockQty:48, rating:4.9, reviews:234, origin:"Shettihalli, Hassan, Karnataka", weight:"~2.5 kg",  harvest:"April–June",  discount:23 },
+  { id:"2", name:"Totapuri Mangoes",    category:"mango",      price:450,  originalPrice:580,  unit:"per dozen",       shortDesc:"Crisp and tangy. Perfect for chutneys and raw mango recipes.",  image:"https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&q=80",  badge:"Great Value",      inStock:true,  stockQty:72, rating:4.7, reviews:156, origin:"Shettihalli, Hassan, Karnataka", weight:"~3 kg",    harvest:"May–July",    discount:22 },
+  { id:"3", name:"Badami Mangoes",      category:"mango",      price:650,  originalPrice:800,  unit:"per dozen",       shortDesc:"Karnataka's pride — sweet, fiber-free, and creamy.",            image:"https://images.unsplash.com/photo-1591073113125-e46713c829ed?w=600&q=80", badge:"Karnataka Special", inStock:true,  stockQty:60, rating:4.8, reviews:189, origin:"Shettihalli, Hassan, Karnataka", weight:"~2.8 kg",  harvest:"May–June",    discount:19 },
+  { id:"4", name:"Malgova Mangoes",     category:"mango",      price:750,  originalPrice:950,  unit:"per dozen",       shortDesc:"Giant, pulpy and insanely sweet. The heavyweight champion.",     image:"https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&q=80",  badge:"Giant Size",       inStock:true,  stockQty:36, rating:4.7, reviews:98,  origin:"Shettihalli, Hassan, Karnataka", weight:"~4.5 kg",  harvest:"June–July",   discount:21 },
+  { id:"5", name:"Farm-Fresh Jackfruit",category:"jackfruit",  price:350,  originalPrice:450,  unit:"per piece (~5kg)",shortDesc:"60-year-old heritage trees. Honey-golden bulbs, intense sweetness.",image:"https://images.unsplash.com/photo-1568702846914-96b305d2aaeb?w=600&q=80",badge:"Heritage Trees",   inStock:true,  stockQty:24, rating:4.8, reviews:127, origin:"Shettihalli, Hassan, Karnataka", weight:"4–6 kg",   harvest:"May–Aug",     discount:22 },
+  { id:"6", name:"Mango Assortment Box",category:"assortment", price:1299, originalPrice:1800, unit:"per gift box",    shortDesc:"Alphonso + Badami + Totapuri — curated and gift-ready.",        image:"https://images.unsplash.com/photo-1601493700631-2b16ec4b4716?w=600&q=80", badge:"Gift Box",         inStock:true,  stockQty:20, rating:5.0, reviews:76,  origin:"Shettihalli, Hassan, Karnataka", weight:"~3 kg mix", harvest:"May–June",   discount:28 },
+  { id:"7", name:"Raw Jackfruit",       category:"jackfruit",  price:120,  originalPrice:160,  unit:"per kg",          shortDesc:"Cook-ready pieces. Firm meaty texture for curries and biryani.", image:"https://images.unsplash.com/photo-1568702846914-96b305d2aaeb?w=600&q=80",badge:"Ready to Cook",    inStock:true,  stockQty:50, rating:4.6, reviews:88,  origin:"Shettihalli, Hassan, Karnataka", weight:"1–5 kg",   harvest:"Mar–June",    discount:25 },
+  { id:"8", name:"Seasonal Fruit Basket",category:"seasonal",  price:599,  originalPrice:750,  unit:"per basket",      shortDesc:"Handpicked weekly basket of whatever's freshest on the farm.",  image:"https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=600&q=80", badge:"Weekly Fresh",     inStock:true,  stockQty:15, rating:4.7, reviews:112, origin:"Shettihalli, Hassan, Karnataka", weight:"3–4 kg",   harvest:"Year-round",  discount:20 },
+];
+
+// ── STATE ────────────────────────────────────────────────────
+let allProducts   = [];
+let activeFilter  = "all";
+let modalProduct  = null;
+let modalQty      = 1;
+
+// ── INIT ─────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  initNavbar();
+  initCountdown();
+  initFilters();
+  initModal();
+  initContactForm();
+  loadProducts();
+});
+
+// ── NAVBAR ───────────────────────────────────────────────────
+function initNavbar() {
+  const nav = document.getElementById("navbar");
+  const ham = document.getElementById("hamburger");
+  const links = document.getElementById("navLinks");
+  window.addEventListener("scroll", () => {
+    nav.classList.toggle("scrolled", window.scrollY > 50);
+  });
+  ham.addEventListener("click", () => links.classList.toggle("open"));
+  links.querySelectorAll("a").forEach(a => a.addEventListener("click", () => links.classList.remove("open")));
+}
+
+// ── COUNTDOWN ────────────────────────────────────────────────
+function initCountdown() {
+  function tick() {
+    const now  = new Date();
+    const end  = new Date(now.getFullYear(), 6, 15); // July 15
+    if (end < now) end.setFullYear(now.getFullYear() + 1);
+    const diff = Math.max(0, end - now);
+    document.getElementById("cd-days").textContent  = String(Math.floor(diff / 86400000)).padStart(2,"0");
+    document.getElementById("cd-hours").textContent = String(Math.floor((diff % 86400000) / 3600000)).padStart(2,"0");
+    document.getElementById("cd-mins").textContent  = String(Math.floor((diff % 3600000) / 60000)).padStart(2,"0");
+    document.getElementById("cd-secs").textContent  = String(Math.floor((diff % 60000) / 1000)).padStart(2,"0");
+  }
+  tick(); setInterval(tick, 1000);
+}
+
+// ── LOAD PRODUCTS ─────────────────────────────────────────────
+async function loadProducts() {
+  const loading = document.getElementById("productsLoading");
+  const grid    = document.getElementById("productsGrid");
+  loading.style.display = "flex";
+  grid.innerHTML = "";
+
+  if (SHEET_CSV_URL) {
+    try {
+      const res  = await fetch(SHEET_CSV_URL);
+      const text = await res.text();
+      const rows = csvToObjects(text);
+      if (rows.length > 0) {
+        allProducts = rows.map(sheetRowToProduct).filter(p => p.name);
+      } else {
+        allProducts = FALLBACK_PRODUCTS;
+      }
+    } catch (e) {
+      console.warn("Sheet fetch failed, using fallback:", e);
+      allProducts = FALLBACK_PRODUCTS;
+    }
+  } else {
+    // Simulate loading delay for UX
+    await new Promise(r => setTimeout(r, 600));
+    allProducts = FALLBACK_PRODUCTS;
+  }
+
+  loading.style.display = "none";
+  renderProducts();
+}
+
+// Parse CSV to array of objects
+function csvToObjects(csv) {
+  const lines = csv.trim().split("\n");
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
+  return lines.slice(1).map(line => {
+    const vals = line.match(/(".*?"|[^,]+)(?=,|$)/g) || [];
+    const obj  = {};
+    headers.forEach((h, i) => { obj[h] = (vals[i] || "").replace(/^"|"$/g, "").trim(); });
+    return obj;
+  });
+}
+
+// Map sheet row columns to product object
+function sheetRowToProduct(row) {
+  return {
+    id:            row.id || row.ID || String(Math.random()),
+    name:          row.name || row.Name || "",
+    category:      (row.category || row.Category || "mango").toLowerCase(),
+    price:         Number(row.price || row.Price || 0),
+    originalPrice: Number(row.originalPrice || row.OriginalPrice || 0) || undefined,
+    unit:          row.unit || row.Unit || "per piece",
+    shortDesc:     row.shortDesc || row.ShortDesc || row.description || "",
+    image:         row.image || row.Image || row.imageUrl || "https://images.unsplash.com/photo-1601493700631-2b16ec4b4716?w=600&q=80",
+    badge:         row.badge || row.Badge || "",
+    inStock:       (row.inStock || row.InStock || "true").toLowerCase() !== "false",
+    stockQty:      Number(row.stockQty || row.StockQty || 99),
+    rating:        Number(row.rating || row.Rating || 4.8),
+    reviews:       Number(row.reviews || row.Reviews || 0),
+    origin:        row.origin || row.Origin || "Shettihalli, Karnataka",
+    weight:        row.weight || row.Weight || "",
+    harvest:       row.harvest || row.Harvest || "",
+    discount:      Number(row.discount || row.Discount || 0),
+  };
+}
+
+// ── RENDER PRODUCTS ──────────────────────────────────────────
+function renderProducts() {
+  const grid  = document.getElementById("productsGrid");
+  const empty = document.getElementById("productsEmpty");
+  const list  = activeFilter === "all" ? allProducts : allProducts.filter(p => p.category === activeFilter);
+
+  if (list.length === 0) { grid.innerHTML = ""; empty.style.display = "block"; return; }
+  empty.style.display = "none";
+
+  grid.innerHTML = list.map(p => productCardHTML(p)).join("");
+
+  // Attach events
+  grid.querySelectorAll(".card-btn-cart").forEach(btn => {
+    btn.addEventListener("click", e => {
+      const id = e.currentTarget.dataset.id;
+      openModal(allProducts.find(p => p.id === id));
+    });
+  });
+  grid.querySelectorAll(".card-btn-wa").forEach(btn => {
+    btn.addEventListener("click", e => {
+      const id = e.currentTarget.dataset.id;
+      quickWhatsApp(allProducts.find(p => p.id === id), 1);
+    });
+  });
+  grid.querySelectorAll(".product-card").forEach(card => {
+    card.addEventListener("click", e => {
+      if (e.target.closest("button")) return;
+      const id = card.dataset.id;
+      openModal(allProducts.find(p => p.id === id));
+    });
+  });
+}
+
+function productCardHTML(p) {
+  const stockBadge = p.inStock
+    ? (p.stockQty <= 5 ? `<span class="badge-stock badge-low">Only ${p.stockQty} left!</span>` : `<span class="badge-stock badge-instock">In Stock</span>`)
+    : `<span class="badge-stock badge-out">Out of Stock</span>`;
+
+  const stars = "★".repeat(Math.round(p.rating)) + "☆".repeat(5 - Math.round(p.rating));
+
+  return `
+  <div class="product-card" data-id="${p.id}" style="cursor:pointer">
+    <div class="card-img-wrap">
+      <img src="${p.image}" alt="${p.name}" loading="lazy" />
+      <div class="card-badges">
+        ${p.badge ? `<span class="badge badge-label">${p.badge}</span>` : ""}
+        ${p.discount ? `<span class="badge badge-discount">−${p.discount}%</span>` : ""}
+      </div>
+      ${stockBadge}
+    </div>
+    <div class="card-body">
+      <div class="card-name">${p.name}</div>
+      <div class="card-desc">${p.shortDesc}</div>
+      <div class="card-rating">
+        <span class="stars-filled">${stars}</span>
+        <small>${p.rating} (${p.reviews} reviews)</small>
+      </div>
+      <div class="card-price-row">
+        <div>
+          <div class="card-price">₹${p.price.toLocaleString("en-IN")}</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            ${p.originalPrice ? `<span class="card-original">₹${p.originalPrice.toLocaleString("en-IN")}</span>` : ""}
+            <span class="card-unit">${p.unit}</span>
+          </div>
+        </div>
+      </div>
+      <div class="card-btns">
+        <button class="card-btn-cart" data-id="${p.id}" ${p.inStock ? "" : "disabled"}>
+          ${p.inStock ? "🛒 Order Now" : "Sold Out"}
+        </button>
+        <button class="card-btn-wa" data-id="${p.id}" title="Quick WhatsApp order">⚡</button>
+      </div>
+      ${p.origin ? `<div class="card-origin">📍 ${p.origin}</div>` : ""}
+    </div>
+  </div>`;
+}
+
+// ── FILTERS ──────────────────────────────────────────────────
+function initFilters() {
+  document.querySelectorAll(".filter-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".filter-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      activeFilter = btn.dataset.cat;
+      renderProducts();
+    });
+  });
+}
+
+// ── MODAL ────────────────────────────────────────────────────
+function initModal() {
+  document.getElementById("modalClose").addEventListener("click", closeModal);
+  document.getElementById("productModal").addEventListener("click", e => {
+    if (e.target === e.currentTarget) closeModal();
+  });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+}
+
+function openModal(product) {
+  if (!product) return;
+  modalProduct = product;
+  modalQty = 1;
+  renderModal();
+  document.getElementById("productModal").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeModal() {
+  document.getElementById("productModal").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+function renderModal() {
+  const p = modalProduct;
+  const total = (p.price * modalQty).toLocaleString("en-IN");
+  document.getElementById("modalContent").innerHTML = `
+    <img src="${p.image}" alt="${p.name}" class="modal-img" />
+    <h2 class="modal-name">${p.name}</h2>
+    <div class="modal-price-row">
+      <span class="modal-price">₹${p.price.toLocaleString("en-IN")}</span>
+      ${p.originalPrice ? `<span class="modal-original">₹${p.originalPrice.toLocaleString("en-IN")}</span>` : ""}
+      <span class="modal-unit">/ ${p.unit}</span>
+    </div>
+    <p class="modal-desc">${p.shortDesc}</p>
+    <div class="modal-meta">
+      ${p.origin  ? `<div class="modal-meta-item"><small>📍 Origin</small><span>${p.origin}</span></div>` : ""}
+      ${p.weight  ? `<div class="modal-meta-item"><small>⚖️ Weight</small><span>${p.weight}</span></div>` : ""}
+      ${p.harvest ? `<div class="modal-meta-item"><small>🌸 Season</small><span>${p.harvest}</span></div>` : ""}
+      <div class="modal-meta-item"><small>🌿 Farming</small><span>100% Organic</span></div>
+    </div>
+    <div class="modal-qty-row">
+      <label>Quantity:</label>
+      <div class="qty-control">
+        <button class="qty-btn" id="qtyMinus">−</button>
+        <span class="qty-val" id="qtyVal">${modalQty}</span>
+        <button class="qty-btn" id="qtyPlus">+</button>
+      </div>
+      <span style="font-size:13px;color:#6b7280">= <strong id="qtyTotal">₹${total}</strong></span>
+    </div>
+    <div class="modal-btns">
+      <a href="${buildWALink(p, modalQty)}" target="_blank" class="btn btn-wa btn-block" id="modalWABtn">
+        💬 Order via WhatsApp — ₹<span id="modalBtnTotal">${total}</span>
+      </a>
+      <button class="btn btn-green btn-block" onclick="copyOrderToClipboard()">📋 Copy Order Details</button>
+    </div>
+  `;
+
+  document.getElementById("qtyMinus").addEventListener("click", () => updateQty(-1));
+  document.getElementById("qtyPlus").addEventListener("click",  () => updateQty(1));
+}
+
+function updateQty(delta) {
+  modalQty = Math.max(1, modalQty + delta);
+  document.getElementById("qtyVal").textContent = modalQty;
+  const total = (modalProduct.price * modalQty).toLocaleString("en-IN");
+  document.getElementById("qtyTotal").textContent = "₹" + total;
+  document.getElementById("modalBtnTotal").textContent = total;
+  document.getElementById("modalWABtn").href = buildWALink(modalProduct, modalQty);
+}
+
+function buildWALink(product, qty) {
+  const msg = `🥭 *Order — Shettihalli Naturals*\n\n`
+    + `📦 *${product.name}*\n`
+    + `Quantity: ${qty} ${product.unit}\n`
+    + `Price: ₹${product.price.toLocaleString("en-IN")} × ${qty} = *₹${(product.price * qty).toLocaleString("en-IN")}*\n\n`
+    + `Please confirm availability and delivery details. Thank you! 🙏`;
+  return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
+}
+
+function quickWhatsApp(product, qty) {
+  window.open(buildWALink(product, qty), "_blank");
+}
+
+function copyOrderToClipboard() {
+  const p = modalProduct;
+  const text = `Order: ${p.name}\nQty: ${modalQty} ${p.unit}\nTotal: ₹${(p.price * modalQty).toLocaleString("en-IN")}\nPhone: +${WA_NUMBER}`;
+  navigator.clipboard.writeText(text).then(() => showToast("Order details copied! ✓"));
+}
+
+// ── CONTACT FORM ─────────────────────────────────────────────
+function initContactForm() {
+  document.getElementById("contactForm").addEventListener("submit", e => {
+    e.preventDefault();
+    const name  = document.getElementById("cf-name").value.trim();
+    const phone = document.getElementById("cf-phone").value.trim();
+    const email = document.getElementById("cf-email").value.trim();
+    const msg   = document.getElementById("cf-msg").value.trim();
+    const text  = `*Enquiry — Shettihalli Naturals*\n\nName: ${name}\nPhone: ${phone}${email ? "\nEmail: " + email : ""}\n\n${msg}`;
+    window.open(`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(text)}`, "_blank");
+    e.target.reset();
+    showToast("Opening WhatsApp... 🥭");
+  });
+}
+
+// ── TOAST ────────────────────────────────────────────────────
+function showToast(msg) {
+  let toast = document.querySelector(".toast");
+  if (!toast) { toast = document.createElement("div"); toast.className = "toast"; document.body.appendChild(toast); }
+  toast.textContent = msg;
+  toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 2800);
+}
