@@ -66,13 +66,16 @@ em { font-style: italic; color: var(--mango-dk); }
   background: rgba(253,253,240,0.92); backdrop-filter: blur(14px);
   box-shadow: 0 2px 20px rgba(0,0,0,0.08); padding: 10px 0;
 }
+.navbar.scrolled .nav-links a { color: var(--forest-dk); }
+.navbar.scrolled .brand-name  { color: var(--forest-dk); }
+.navbar.scrolled .brand-sub   { color: var(--mango-dk); }
 .nav-container { display: flex; align-items: center; justify-content: space-between; max-width: 1200px; margin: 0 auto; padding: 0 20px; }
 .nav-brand { display: flex; align-items: center; gap: 10px; }
 .brand-icon { font-size: 28px; }
-.brand-name { font-family: var(--font-head); font-weight: 700; font-size: 18px; color: var(--forest-dk); line-height: 1; }
-.brand-sub  { font-size: 10px; font-weight: 700; letter-spacing: 3px; color: var(--mango-dk); }
+.brand-name { font-family: var(--font-head); font-weight: 700; font-size: 18px; color: #ffffff; line-height: 1; }
+.brand-sub  { font-size: 10px; font-weight: 700; letter-spacing: 3px; color: var(--mango); }
 .nav-links  { display: flex; gap: 32px; }
-.nav-links a { font-weight: 600; font-size: 15px; color: var(--forest-dk); position: relative; }
+.nav-links a { font-weight: 600; font-size: 15px; color: #ffffff; position: relative; }
 .nav-links a::after { content: ''; position: absolute; bottom: -2px; left: 0; width: 0; height: 2px; background: var(--mango); transition: width 0.3s; }
 .nav-links a:hover::after { width: 100%; }
 .hamburger { display: none; background: none; border: none; font-size: 24px; cursor: pointer; color: var(--forest-dk); }

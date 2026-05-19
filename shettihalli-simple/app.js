@@ -2,8 +2,8 @@
 //  SHETTIHALLI NATURALS — app.js
 // ═══════════════════════════════════════════════════════════════
 
-const WA_NUMBER     = "919876543210";
-const SHEET_CSV_URL = "";
+const WA_NUMBER     = "918073647211";
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTu_9vQWCquS52J_GrYcCLoGRwDCe9HUykCqqniSYNnuHj1Ge9a76H_M8j_uDNEdQ6xCiKIAB-WDY-X/pub?output=csv";
 
 const FALLBACK_PRODUCTS = [
   // ── MANGOES ──────────────────────────────────────────────────
@@ -177,6 +177,18 @@ async function loadProducts() {
   loading.style.display = "flex";
   grid.innerHTML = "";
 
+  // 1. Try localStorage first (set by admin panel)
+  const adminSaved = localStorage.getItem("sn_products");
+  if (adminSaved) {
+    try {
+      allProducts = JSON.parse(adminSaved);
+      loading.style.display = "none";
+      renderProducts();
+      return;
+    } catch { }
+  }
+
+  // 2. Try Google Sheet CSV
   if (SHEET_CSV_URL) {
     try {
       const res  = await fetch(SHEET_CSV_URL);
