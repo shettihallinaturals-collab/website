@@ -11,7 +11,9 @@
 
 <div id="loginScreen" class="login-screen">
   <div class="login-box">
-    <div class="login-logo">🌿</div>
+    <div class="login-logo">
+      <img src="https://res.cloudinary.com/dbdynpis1/image/upload/q_auto/f_auto/v1779299552/ChatGPT_Image_May_19_2026_at_11_24_59_PM_ebky4d.png" style="width:64px;height:64px;border-radius:16px;object-fit:cover" alt="Logo" />
+    </div>
     <h1>Shettihalli Naturals</h1>
     <p>Admin Portal</p>
     <form id="loginForm">
@@ -33,7 +35,7 @@
 <div id="dashboard" class="dashboard hidden">
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
-      <span>🌿</span>
+      <img src="https://res.cloudinary.com/dbdynpis1/image/upload/q_auto/f_auto/v1779299552/ChatGPT_Image_May_19_2026_at_11_24_59_PM_ebky4d.png" style="width:36px;height:36px;border-radius:8px;object-fit:cover" alt="Logo" />
       <div><div class="brand-name">Shettihalli</div><div class="brand-sub">Admin</div></div>
     </div>
     <nav class="sidebar-nav">
@@ -99,7 +101,7 @@
         <form id="productForm" class="product-form">
           <input type="hidden" id="editId" />
           <div class="form-row">
-            <div class="form-group"><label>Product Name *</label><input type="text" id="f-name" placeholder="e.g. Alphonso Mangoes" required /></div>
+            <div class="form-group"><label>Product Name *</label><input type="text" id="f-name" placeholder="e.g. Badami Mangoes" required /></div>
             <div class="form-group"><label>Category *</label>
               <select id="f-cat" required>
                 <option value="">— Select —</option>
@@ -120,9 +122,10 @@
             <div class="form-group"><label>Stock Qty *</label><input type="number" id="f-stock" placeholder="50" min="0" required /></div>
             <div class="form-group"><label>Badge</label><input type="text" id="f-badge" placeholder="Bestseller" /></div>
             <div class="form-group"><label>Status</label>
-              <select id="f-instock">
-                <option value="true">✅ In Stock</option>
-                <option value="false">❌ Out of Stock</option>
+              <select id="f-status">
+                <option value="active">✅ Active (In Stock)</option>
+                <option value="coming_soon">🔔 Coming Soon</option>
+                <option value="sold_out">❌ Sold Out</option>
               </select>
             </div>
           </div>
@@ -147,14 +150,13 @@
             <button type="button" class="btn-secondary" id="exportBtn">📤 Export JSON</button>
           </div>
         </form>
-
         <div class="sheet-instructions">
           <h4>📊 How to connect Google Sheets</h4>
           <ol>
-            <li>Create a Google Sheet with columns:<br><code>id, name, category, price, originalPrice, unit, shortDesc, image, badge, inStock, stockQty, rating, reviews, origin, weight, harvest, discount</code></li>
+            <li>Create a Google Sheet with columns:<br><code>id, name, category, price, originalPrice, unit, shortDesc, image, badge, inStock, status, stockQty, rating, reviews, origin, weight, harvest, discount</code></li>
             <li><strong>File → Share → Publish to web → CSV</strong> → copy the URL</li>
             <li>Open <code>app.js</code> → paste URL into <code>SHEET_CSV_URL</code></li>
-            <li>Your website now loads products live from the Sheet!</li>
+            <li>Website now loads products live from the Sheet!</li>
           </ol>
         </div>
       </div>
@@ -195,8 +197,8 @@
     <h3>📝 Log Order</h3>
     <form id="orderForm" class="product-form" style="margin-top:16px">
       <div class="form-group"><label>Customer Name</label><input type="text" id="o-name" placeholder="Priya Sharma" /></div>
-      <div class="form-group"><label>Phone</label><input type="tel" id="o-phone" placeholder="+91 98765 43210" /></div>
-      <div class="form-group"><label>Items</label><input type="text" id="o-items" placeholder="Alphonso ×2, Badami ×1" /></div>
+      <div class="form-group"><label>Phone</label><input type="tel" id="o-phone" placeholder="+91 80736 47211" /></div>
+      <div class="form-group"><label>Items</label><input type="text" id="o-items" placeholder="Badami ×2, Raspuri ×1" /></div>
       <div class="form-row">
         <div class="form-group"><label>Total (₹)</label><input type="number" id="o-total" placeholder="1700" /></div>
         <div class="form-group"><label>Status</label>
