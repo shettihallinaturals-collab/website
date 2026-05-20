@@ -5,7 +5,7 @@
 const WA_NUMBER     = "918073647211";
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTu_9vQWCquS52J_GrYcCLoGRwDCe9HUykCqqniSYNnuHj1Ge9a76H_M8j_uDNEdQ6xCiKIAB-WDY-X/pub?output=csv";
 const STORAGE_KEY   = "sn_products";
-const STORAGE_VER   = "v4"; // bump to force-refresh all browsers
+const STORAGE_VER   = "v5"; // bump to force-refresh all browsers
 
 const FALLBACK_PRODUCTS = [
   { id:"1",  name:"Totapuri Mangoes",            category:"mango",     price:450,  originalPrice:580,  unit:"per dozen",         shortDesc:"Crisp and tangy. Perfect for chutneys, pickles and raw mango recipes.",          image:"https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&q=80",  badge:"Great Value",       inStock:true, status:"active",      stockQty:72, rating:4.7, reviews:156, origin:"Shettihalli, Hassan, Karnataka", weight:"~3 kg",    harvest:"May–July",   discount:22 },
