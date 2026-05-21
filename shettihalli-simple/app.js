@@ -208,7 +208,7 @@ function getStatusInfo(p) {
 
 function productCardHTML(p) {
     const s     = getStatusInfo(p);
-    const stars = "★".repeat(Math.round(p.rating)) + "☆".repeat(5 - Math.round(p.rating));
+
 
     return `
   <div class="product-card" data-id="${p.id}">
@@ -223,10 +223,6 @@ function productCardHTML(p) {
     <div class="card-body">
       <div class="card-name">${p.name}</div>
       <div class="card-desc">${p.shortDesc}</div>
-      <div class="card-rating">
-        <span class="stars-filled">${stars}</span>
-        <small>${p.rating} (${p.reviews} reviews)</small>
-      </div>
       <div class="card-price-row">
         <div>
           <div class="card-price">₹${p.price.toLocaleString("en-IN")}</div>
