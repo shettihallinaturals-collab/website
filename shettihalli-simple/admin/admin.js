@@ -9,9 +9,14 @@ const STORAGE_VER     = "v5";
 const ORDERS_KEY      = "sn_orders";
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyUwJ2I3kJxIxnf_fExlt7SPg6Wz-FnIdVnGoJUOH29D6CuwOwj1gUPW0_N-JU6w-EPQA/exec";
 
+// Sheet CSV URL — same as app.js — used to load live data into admin
+const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTu_9vQWCquS52J_GrYcCLoGRwDCe9HUykCqqniSYNnuHj1Ge9a76H_M8j_uDNEdQ6xCiKIAB-WDY-X/pub?output=csv";
+
 let products        = [];
 let orders          = [];
 let deletePendingId = null;
+let syncTimer       = null;   // debounce timer
+let dataFromSheet   = false;  // true = data came from Sheet, safe to sync back
 
 document.addEventListener("DOMContentLoaded", () => {
   const storedVer = localStorage.getItem("sn_products_ver");
@@ -50,8 +55,8 @@ document.addEventListener("DOMContentLoaded", () => {
 // ── AUTH ──────────────────────────────────────────────────────
 function handleLogin(e) {
   e.preventDefault();
-  const u = document.getElementById("loginUser").value.trim();
-  const p = document.getElementById("loginPass").value;
+  const u   = document.getElementById("loginUser").value.trim();
+  const p   = document.getElementById("loginPass").value;
   const err = document.getElementById("loginError");
   if (u === ADMIN_USER && p === ADMIN_PASS) {
     localStorage.setItem("sn_admin", "1");
@@ -65,13 +70,123 @@ function handleLogin(e) {
 
 function logout() { localStorage.removeItem("sn_admin"); location.reload(); }
 
-function showDashboard() {
+async function showDashboard() {
   document.getElementById("loginScreen").style.display = "none";
   document.getElementById("dashboard").classList.remove("hidden");
-  loadData(); renderOverview(); renderProductsTable(); renderOrdersTable();
+
+  // Always try to load from Sheet first — this prevents defaults overwriting real data
+  await loadData();
+  renderOverview();
+  renderProductsTable();
+  renderOrdersTable();
 }
 
-// ── DEFAULTS ──────────────────────────────────────────────────
+// ── DATA — load from Sheet first, localStorage as fallback ────
+async function loadData() {
+  // Try Sheet CSV first (most up-to-date)
+  if (SHEET_CSV_URL) {
+    try {
+      const res  = await fetch(SHEET_CSV_URL + "&t=" + Date.now());
+      const text = await res.text();
+      const rows = csvToObjects(text);
+      if (rows.length > 0) {
+        const parsed = rows.map(sheetRowToProduct).filter(p => p.name && p.id);
+        if (parsed.length > 0) {
+          products      = parsed;
+          dataFromSheet = true;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
+          console.log("✅ Loaded", products.length, "products from Sheet");
+          return;
+        }
+      }
+    } catch (err) {
+      console.warn("Sheet load failed, falling back to localStorage:", err);
+    }
+  }
+
+  // Fallback: localStorage
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    try {
+      products      = JSON.parse(saved);
+      products      = products.map(p => ({ status:"active", ...p }));
+      dataFromSheet = true; // treat localStorage as valid — user put it there
+      console.log("✅ Loaded", products.length, "products from localStorage");
+      return;
+    } catch {}
+  }
+
+  // Last resort: defaults — but DON'T sync these to Sheet automatically
+  products      = JSON.parse(JSON.stringify(DEFAULTS));
+  dataFromSheet = false;
+  console.warn("⚠️ Using default products — Sheet not synced until user makes a change");
+}
+
+function csvToObjects(csv) {
+  const lines = csv.trim().split("\n");
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
+  return lines.slice(1).map(line => {
+    const vals = line.match(/(".*?"|[^,]+)(?=,|$)/g) || [];
+    const obj  = {};
+    headers.forEach((h, i) => { obj[h] = (vals[i] || "").replace(/^"|"$/g, "").trim(); });
+    return obj;
+  });
+}
+
+function sheetRowToProduct(row) {
+  return {
+    id:            row.id || "",
+    name:          row.name || "",
+    category:      (row.category || "mango").toLowerCase(),
+    price:         Number(row.price || 0),
+    originalPrice: Number(row.originalPrice || 0) || undefined,
+    unit:          row.unit || "per piece",
+    shortDesc:     row.shortDesc || "",
+    image:         row.image || "",
+    badge:         row.badge || "",
+    inStock:       (row.inStock || "true").toLowerCase() !== "false",
+    status:        (row.status || "active").toLowerCase(),
+    stockQty:      Number(row.stockQty || 0),
+    rating:        Number(row.rating || 4.8),
+    reviews:       Number(row.reviews || 0),
+    origin:        row.origin || "Shettihalli, Karnataka",
+    weight:        row.weight || "",
+    harvest:       row.harvest || "",
+    discount:      Number(row.discount || 0),
+  };
+}
+
+function saveOrdersData() { localStorage.setItem(ORDERS_KEY, JSON.stringify(orders)); }
+
+// ── saveData — debounced, only syncs if data is real ─────────
+function saveData() {
+  // Always save to localStorage immediately
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
+
+  // Only sync to Sheet if data is real (not defaults)
+  if (!APPS_SCRIPT_URL || !dataFromSheet) {
+    if (!dataFromSheet) console.warn("Skipping Sheet sync — data came from defaults");
+    return;
+  }
+
+  // DEBOUNCE — wait 1.5s after last change before writing to Sheet
+  // This prevents duplicate rows from rapid +/- button clicks
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    console.log("⬆️ Syncing", products.length, "products to Sheet...");
+    fetch(APPS_SCRIPT_URL, {
+      method:  "POST",
+      mode:    "no-cors",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ action: "deleteAll", products }),
+    })
+        .then(() => toast("✅ Sheet synced!"))
+        .catch(() => toast("⚠️ Saved locally, Sheet sync failed"));
+  }, 1500);
+}
+
+// ── DEFAULTS — only used as last resort, never auto-synced ────
 const DEFAULTS = [
   { id:"1",  name:"Totapuri Mangoes",            category:"mango",     price:450,  originalPrice:580,  unit:"per dozen",         shortDesc:"Crisp and tangy. Perfect for chutneys, pickles and raw mango recipes.",          image:"https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&q=80",  badge:"Great Value",       inStock:true, status:"active", stockQty:72, rating:4.7, reviews:156, origin:"Shettihalli, Hassan, Karnataka", weight:"~3 kg",    harvest:"May–July",   discount:22 },
   { id:"2",  name:"Badami Mangoes",              category:"mango",     price:650,  originalPrice:800,  unit:"per dozen",         shortDesc:"Karnataka's own pride — sweet, fiber-free and creamy.",                           image:"https://images.unsplash.com/photo-1601493700631-2b16ec4b4716?w=600&q=80", badge:"Karnataka Special", inStock:true, status:"active", stockQty:60, rating:4.8, reviews:189, origin:"Shettihalli, Hassan, Karnataka", weight:"~2.8 kg",  harvest:"May–June",   discount:19 },
@@ -90,29 +205,6 @@ const DEFAULTS = [
   { id:"15", name:"Maavinkaayi Chitranna Gojju", category:"kitchen",   price:160,  originalPrice:210,  unit:"per 300g jar",      shortDesc:"Raw mango gojju for chitranna — tangy, spicy and utterly Karnataka.",            image:"https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=600&q=80", badge:"Karnataka Special", inStock:true, status:"active", stockQty:25, rating:4.8, reviews:74,  origin:"Shettihalli, Hassan, Karnataka", weight:"300g jar",  harvest:"Year-round", discount:24 },
   { id:"16", name:"Mango Assortment Box",        category:"assortment",price:1299, originalPrice:1800, unit:"per gift box",       shortDesc:"Badami + Raspuri + Totapuri — curated and beautifully gift-packed.",             image:"https://images.unsplash.com/photo-1601493700631-2b16ec4b4716?w=600&q=80", badge:"Gift Box",          inStock:true, status:"active", stockQty:20, rating:5.0, reviews:76,  origin:"Shettihalli, Hassan, Karnataka", weight:"~3 kg mix", harvest:"May–June",   discount:28 },
 ];
-
-// ── DATA ──────────────────────────────────────────────────────
-function loadData() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  products    = saved ? JSON.parse(saved) : JSON.parse(JSON.stringify(DEFAULTS));
-  products    = products.map(p => ({ status:"active", ...p })); // migrate old data
-  const savedOrders = localStorage.getItem(ORDERS_KEY);
-  orders = savedOrders ? JSON.parse(savedOrders) : [];
-}
-
-// ── SINGLE saveData — sends ALL products to replace sheet ─────
-function saveData() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
-  if (!APPS_SCRIPT_URL) return;
-  fetch(APPS_SCRIPT_URL, {
-    method:  "POST",
-    mode:    "no-cors",
-    headers: { "Content-Type": "application/json" },
-    body:    JSON.stringify({ action: "deleteAll", products }),
-  }).catch(() => {});
-}
-
-function saveOrdersData() { localStorage.setItem(ORDERS_KEY, JSON.stringify(orders)); }
 
 // ── TABS ──────────────────────────────────────────────────────
 const TAB_TITLES = { overview:"Overview", products:"Products", add:"Add Product", orders:"Orders" };
@@ -180,13 +272,15 @@ function renderProductsTable() {
     <tbody>${list.map(p => `<tr>
       <td><strong>${p.name}</strong><br><small style="color:#9ca3af">${p.unit}</small></td>
       <td><span class="badge-pill pill-gray">${p.category}</span></td>
-      <td><input type="number" class="inline-input" value="${p.price}" onchange="inlineUpdate('${p.id}','price',this.value)" style="width:80px" /></td>
-      <td><input type="number" class="inline-input" value="${p.stockQty}" onchange="inlineUpdate('${p.id}','stockQty',this.value)" style="width:65px" /></td>
+      <td><input type="number" class="inline-input" value="${p.price}"
+            onchange="inlineUpdate('${p.id}','price',this.value)" style="width:80px" /></td>
+      <td><input type="number" class="inline-input" value="${p.stockQty}"
+            onchange="inlineUpdate('${p.id}','stockQty',this.value)" style="width:65px" /></td>
       <td>
         <select onchange="inlineUpdate('${p.id}','status',this.value)" class="inline-select">
-          <option value="active" ${(p.status || "active") === "active" ? "selected" : ""}>✅ Active</option>
-          <option value="coming_soon" ${p.status === "coming_soon" ? "selected" : ""}>🔔 Coming Soon</option>
-          <option value="sold_out" ${p.status === "sold_out" ? "selected" : ""}>❌ Sold Out</option>
+          <option value="active"      ${(p.status || "active") === "active"      ? "selected" : ""}>✅ Active</option>
+          <option value="coming_soon" ${p.status === "coming_soon"               ? "selected" : ""}>🔔 Coming Soon</option>
+          <option value="sold_out"    ${p.status === "sold_out"                  ? "selected" : ""}>❌ Sold Out</option>
         </select>
       </td>
       <td><div class="tbl-actions">
@@ -203,12 +297,14 @@ function renderProductsTable() {
   });
 }
 
+// inlineUpdate — uses onchange (fires on blur/enter, NOT on every keystroke)
 function inlineUpdate(id, field, value) {
   const p = products.find(p => p.id === id);
   if (!p) return;
+
   if (field === "price" || field === "stockQty") {
     p[field] = Number(value);
-    if (field === "stockQty" && Number(value) === 0) { p.inStock = false; p.status = "sold_out"; }
+    if (field === "stockQty" && Number(value) === 0)  { p.inStock = false; p.status = "sold_out"; }
     if (field === "stockQty" && Number(value) > 0 && p.status === "sold_out") { p.inStock = true; p.status = "active"; }
   } else if (field === "status") {
     p.status  = value;
@@ -216,9 +312,11 @@ function inlineUpdate(id, field, value) {
   } else {
     p[field] = value;
   }
-  saveData();
+
+  dataFromSheet = true; // user made a real change — safe to sync
+  saveData();           // debounced — waits 1.5s before hitting Sheet
   renderOverview();
-  toast("✅ Saved & synced to Sheet!");
+  toast("✅ Saved! Syncing to Sheet...");
 }
 
 // ── ADD / EDIT ────────────────────────────────────────────────
@@ -252,13 +350,14 @@ function saveProduct(e) {
   if (id) {
     const idx = products.findIndex(p => p.id === id);
     if (idx !== -1) products[idx] = { ...products[idx], ...data };
-    toast("✅ Product updated & synced!");
+    toast("✅ Updated!");
   } else {
     data.id = "p_" + Date.now();
     products.push(data);
-    toast("✅ Product added & synced!");
+    toast("✅ Added!");
   }
 
+  dataFromSheet = true;
   saveData();
   e.target.reset();
   document.getElementById("imgPreview").classList.add("hidden");
@@ -279,19 +378,19 @@ function editProduct(id) {
   const p = products.find(p => p.id === id);
   if (!p) return;
   switchTab("add", document.querySelector('[data-tab="add"]'));
-  document.getElementById("editId").value    = p.id;
-  document.getElementById("f-name").value   = p.name;
-  document.getElementById("f-cat").value    = p.category;
-  document.getElementById("f-price").value  = p.price;
-  document.getElementById("f-oprice").value = p.originalPrice || "";
-  document.getElementById("f-unit").value   = p.unit;
-  document.getElementById("f-stock").value  = p.stockQty;
-  document.getElementById("f-badge").value  = p.badge || "";
-  document.getElementById("f-status").value = p.status || "active";
-  document.getElementById("f-img").value    = p.image || "";
-  document.getElementById("f-short").value  = p.shortDesc || "";
-  document.getElementById("f-origin").value = p.origin || "";
-  document.getElementById("f-weight").value = p.weight || "";
+  document.getElementById("editId").value     = p.id;
+  document.getElementById("f-name").value    = p.name;
+  document.getElementById("f-cat").value     = p.category;
+  document.getElementById("f-price").value   = p.price;
+  document.getElementById("f-oprice").value  = p.originalPrice || "";
+  document.getElementById("f-unit").value    = p.unit;
+  document.getElementById("f-stock").value   = p.stockQty;
+  document.getElementById("f-badge").value   = p.badge || "";
+  document.getElementById("f-status").value  = p.status || "active";
+  document.getElementById("f-img").value     = p.image || "";
+  document.getElementById("f-short").value   = p.shortDesc || "";
+  document.getElementById("f-origin").value  = p.origin || "";
+  document.getElementById("f-weight").value  = p.weight || "";
   document.getElementById("f-harvest").value = p.harvest || "";
   if (p.image) {
     const prev = document.getElementById("imgPreview");
@@ -328,18 +427,22 @@ function askDelete(id) {
 }
 
 function confirmDelete() {
-  products = products.filter(p => p.id !== deletePendingId);
-  saveData(); // sends deleteAll with remaining products — Sheet is fully replaced
+  products      = products.filter(p => p.id !== deletePendingId);
+  dataFromSheet = true;
+  saveData();
   closeDialog("confirmDialog");
   renderProductsTable();
   renderOverview();
-  toast("🗑 Deleted & Sheet updated!");
+  toast("🗑 Deleted! Syncing to Sheet...");
 }
 
 // ── ORDERS ────────────────────────────────────────────────────
 function renderOrdersTable() {
   const wrap = document.getElementById("ordersTable");
   if (!wrap) return;
+  const savedOrders = localStorage.getItem(ORDERS_KEY);
+  orders = savedOrders ? JSON.parse(savedOrders) : [];
+
   if (orders.length === 0) {
     wrap.innerHTML = '<p class="empty-msg">No orders logged yet.</p>';
     return;
@@ -348,20 +451,18 @@ function renderOrdersTable() {
     <thead><tr><th>#</th><th>Customer</th><th>Phone</th><th>Items</th><th>Total</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
     <tbody>${orders.map((o, i) => `<tr>
       <td><strong>${orders.length - i}</strong></td>
-      <td>${o.name}</td>
-      <td>${o.phone}</td>
+      <td>${o.name}</td><td>${o.phone}</td>
       <td style="max-width:160px;font-size:13px">${o.items}</td>
       <td><strong>₹${Number(o.total).toLocaleString("en-IN")}</strong></td>
-      <td>
-        <select onchange="updateOrderStatus(${i},this.value)" style="font-size:12px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:6px">
-          ${["pending","confirmed","shipped","delivered","cancelled"].map(s =>
+      <td><select onchange="updateOrderStatus(${i},this.value)" style="font-size:12px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:6px">
+        ${["pending","confirmed","shipped","delivered","cancelled"].map(s =>
       `<option ${o.status === s ? "selected" : ""}>${s}</option>`
   ).join("")}
-        </select>
-      </td>
+      </select></td>
       <td style="font-size:12px;color:#9ca3af">${o.date}</td>
       <td>
-        <a href="https://wa.me/${o.phone.replace(/\D/g,"")}?text=${encodeURIComponent("Hi " + o.name + "! Your Shettihalli Naturals order: " + o.items)}" target="_blank" style="font-size:18px">📱</a>
+        <a href="https://wa.me/${o.phone.replace(/\D/g,"")}?text=${encodeURIComponent("Hi " + o.name + "! Your Shettihalli Naturals order: " + o.items)}"
+           target="_blank" style="font-size:18px">📱</a>
         <button class="btn-del" onclick="deleteOrder(${i})" style="margin-left:6px">🗑</button>
       </td>
     </tr>`).join("")}</tbody></table></div>`;
@@ -369,6 +470,8 @@ function renderOrdersTable() {
 
 function saveOrder(e) {
   e.preventDefault();
+  const savedOrders = localStorage.getItem(ORDERS_KEY);
+  orders = savedOrders ? JSON.parse(savedOrders) : [];
   orders.unshift({
     name:   document.getElementById("o-name").value.trim(),
     phone:  document.getElementById("o-phone").value.trim(),
