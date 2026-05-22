@@ -1,30 +1,20 @@
 // ═══════════════════════════════════════════════════════════════
 //  SHETTIHALLI NATURALS — Admin Panel JS
+//  Source of truth: Google Sheet ONLY. No default products.
 // ═══════════════════════════════════════════════════════════════
 
 const ADMIN_USER      = "admin";
 const ADMIN_PASS      = "shettihalli2024";
-const STORAGE_KEY     = "sn_products";
-const STORAGE_VER     = "v5";
 const ORDERS_KEY      = "sn_orders";
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyUwJ2I3kJxIxnf_fExlt7SPg6Wz-FnIdVnGoJUOH29D6CuwOwj1gUPW0_N-JU6w-EPQA/exec";
-
-// Sheet CSV URL — same as app.js — used to load live data into admin
-const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTu_9vQWCquS52J_GrYcCLoGRwDCe9HUykCqqniSYNnuHj1Ge9a76H_M8j_uDNEdQ6xCiKIAB-WDY-X/pub?output=csv";
+const SHEET_CSV_URL   = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTu_9vQWCquS52J_GrYcCLoGRwDCe9HUykCqqniSYNnuHj1Ge9a76H_M8j_uDNEdQ6xCiKIAB-WDY-X/pub?output=csv";
 
 let products        = [];
 let orders          = [];
 let deletePendingId = null;
-let syncTimer       = null;   // debounce timer
-let dataFromSheet   = false;  // true = data came from Sheet, safe to sync back
+let syncTimer       = null;
 
 document.addEventListener("DOMContentLoaded", () => {
-  const storedVer = localStorage.getItem("sn_products_ver");
-  if (storedVer !== STORAGE_VER) {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.setItem("sn_products_ver", STORAGE_VER);
-  }
-
   if (localStorage.getItem("sn_admin") === "1") showDashboard();
   else document.getElementById("loginScreen").style.display = "flex";
 
@@ -63,7 +53,7 @@ function handleLogin(e) {
     err.style.display = "none";
     showDashboard();
   } else {
-    err.textContent   = "❌ Invalid username or password.";
+    err.textContent = "❌ Invalid username or password.";
     err.style.display = "block";
   }
 }
@@ -73,138 +63,119 @@ function logout() { localStorage.removeItem("sn_admin"); location.reload(); }
 async function showDashboard() {
   document.getElementById("loginScreen").style.display = "none";
   document.getElementById("dashboard").classList.remove("hidden");
-
-  // Always try to load from Sheet first — this prevents defaults overwriting real data
-  await loadData();
+  await loadFromSheet();
+  const savedOrders = localStorage.getItem(ORDERS_KEY);
+  orders = savedOrders ? JSON.parse(savedOrders) : [];
   renderOverview();
   renderProductsTable();
   renderOrdersTable();
 }
 
-// ── DATA — load from Sheet first, localStorage as fallback ────
-async function loadData() {
-  // Try Sheet CSV first (most up-to-date)
-  if (SHEET_CSV_URL) {
-    try {
-      const res  = await fetch(SHEET_CSV_URL + "&t=" + Date.now());
-      const text = await res.text();
-      const rows = csvToObjects(text);
-      if (rows.length > 0) {
-        const parsed = rows.map(sheetRowToProduct).filter(p => p.name && p.id);
-        if (parsed.length > 0) {
-          products      = parsed;
-          dataFromSheet = true;
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
-          console.log("✅ Loaded", products.length, "products from Sheet");
-          return;
-        }
-      }
-    } catch (err) {
-      console.warn("Sheet load failed, falling back to localStorage:", err);
+// ── LOAD FROM SHEET — always, no fallback to defaults ─────────
+async function loadFromSheet() {
+  setLoading(true);
+  try {
+    const res  = await fetch(SHEET_CSV_URL + "&t=" + Date.now());
+    const text = await res.text();
+    const rows = parseCSV(text);
+    const parsed = rows.map(rowToProduct).filter(p => p.id && p.name);
+    if (parsed.length > 0) {
+      products = parsed;
+      console.log("✅ Loaded", products.length, "products from Sheet");
+    } else {
+      products = [];
+      toast("⚠️ Sheet is empty. Add products below.");
     }
+  } catch (err) {
+    console.error("Sheet load failed:", err);
+    products = [];
+    toast("⚠️ Could not load Sheet. Check connection.");
   }
-
-  // Fallback: localStorage
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved) {
-    try {
-      products      = JSON.parse(saved);
-      products      = products.map(p => ({ status:"active", ...p }));
-      dataFromSheet = true; // treat localStorage as valid — user put it there
-      console.log("✅ Loaded", products.length, "products from localStorage");
-      return;
-    } catch {}
-  }
-
-  // Last resort: defaults — but DON'T sync these to Sheet automatically
-  products      = JSON.parse(JSON.stringify(DEFAULTS));
-  dataFromSheet = false;
-  console.warn("⚠️ Using default products — Sheet not synced until user makes a change");
+  setLoading(false);
 }
 
-function csvToObjects(csv) {
+function setLoading(on) {
+  const el = document.getElementById("productsTable");
+  if (!el) return;
+  if (on) el.innerHTML = '<p class="empty-msg" style="padding:30px;text-align:center">⏳ Loading from Google Sheet...</p>';
+}
+
+// ── CSV PARSER ────────────────────────────────────────────────
+function parseCSV(csv) {
   const lines = csv.trim().split("\n");
   if (lines.length < 2) return [];
-  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
+  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, "").trim());
   return lines.slice(1).map(line => {
-    const vals = line.match(/(".*?"|[^,]+)(?=,|$)/g) || [];
-    const obj  = {};
-    headers.forEach((h, i) => { obj[h] = (vals[i] || "").replace(/^"|"$/g, "").trim(); });
+    const vals = [];
+    let cur = "", inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '"') { inQ = !inQ; continue; }
+      if (line[i] === "," && !inQ) { vals.push(cur.trim()); cur = ""; continue; }
+      cur += line[i];
+    }
+    vals.push(cur.trim());
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = (vals[i] || "").trim(); });
     return obj;
   });
 }
 
-function sheetRowToProduct(row) {
+function rowToProduct(row) {
+  const VALID_CATS   = ["mango","jackfruit","seasonal","kitchen","assortment"];
+  const VALID_STATUS = ["active","coming_soon","sold_out"];
+
+  function text(val, fallback = "") {
+    if (!val) return fallback;
+    const s = String(val).trim();
+    if (!s || s === "TRUE" || s === "FALSE" || s === "true" || s === "false") return fallback;
+    if (!isNaN(Number(s))) return fallback;
+    return s;
+  }
+
+  function num(val, fallback = 0) {
+    const n = Number(String(val).trim());
+    return isNaN(n) ? fallback : n;
+  }
+
+  const rawCat    = String(row.category || "").trim().toLowerCase();
+  const rawStatus = String(row.status   || "").trim().toLowerCase();
+  const rawStock  = String(row.inStock  || "true").trim().toUpperCase();
+
   return {
-    id:            row.id || "",
-    name:          row.name || "",
-    category:      (row.category || "mango").toLowerCase(),
-    price:         Number(row.price || 0),
-    originalPrice: Number(row.originalPrice || 0) || undefined,
-    unit:          row.unit || "per piece",
-    shortDesc:     row.shortDesc || "",
-    image:         row.image || "",
-    badge:         row.badge || "",
-    inStock:       (row.inStock || "true").toLowerCase() !== "false",
-    status:        (row.status || "active").toLowerCase(),
-    stockQty:      Number(row.stockQty || 0),
-    rating:        Number(row.rating || 4.8),
-    reviews:       Number(row.reviews || 0),
-    origin:        row.origin || "Shettihalli, Karnataka",
-    weight:        row.weight || "",
-    harvest:       row.harvest || "",
-    discount:      Number(row.discount || 0),
+    id:            String(row.id || "").trim(),
+    name:          text(row.name),
+    category:      VALID_CATS.includes(rawCat) ? rawCat : "mango",
+    price:         num(row.price),
+    originalPrice: num(row.originalPrice) || undefined,
+    unit:          text(row.unit, "per piece"),
+    shortDesc:     text(row.shortDesc),
+    image:         text(row.image),
+    badge:         text(row.badge),
+    inStock:       rawStock === "TRUE" || rawStock === "1",
+    status:        VALID_STATUS.includes(rawStatus) ? rawStatus : "active",
+    stockQty:      num(row.stockQty),
+    origin:        text(row.origin, "Shettihalli, Karnataka"),
+    weight:        text(row.weight),
+    harvest:       text(row.harvest),
+    discount:      num(row.discount),
   };
 }
 
-function saveOrdersData() { localStorage.setItem(ORDERS_KEY, JSON.stringify(orders)); }
-
-// ── saveData — debounced, only syncs if data is real ─────────
-function saveData() {
-  // Always save to localStorage immediately
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(products));
-
-  // Only sync to Sheet if data is real (not defaults)
-  if (!APPS_SCRIPT_URL || !dataFromSheet) {
-    if (!dataFromSheet) console.warn("Skipping Sheet sync — data came from defaults");
-    return;
-  }
-
-  // DEBOUNCE — wait 1.5s after last change before writing to Sheet
-  // This prevents duplicate rows from rapid +/- button clicks
+// ── SYNC TO SHEET — debounced 1.5s ────────────────────────────
+function syncToSheet() {
+  if (!APPS_SCRIPT_URL) return;
   clearTimeout(syncTimer);
   syncTimer = setTimeout(() => {
-    console.log("⬆️ Syncing", products.length, "products to Sheet...");
     fetch(APPS_SCRIPT_URL, {
       method:  "POST",
       mode:    "no-cors",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ action: "deleteAll", products }),
     })
-        .then(() => toast("✅ Sheet synced!"))
-        .catch(() => toast("⚠️ Saved locally, Sheet sync failed"));
+        .then(() => { toast("✅ Sheet synced!"); })
+        .catch(() => { toast("⚠️ Sync failed — check Apps Script"); });
   }, 1500);
 }
-
-// ── DEFAULTS — only used as last resort, never auto-synced ────
-const DEFAULTS = [
-  { id:"1",  name:"Totapuri Mangoes",            category:"mango",     price:450,  originalPrice:580,  unit:"per dozen",         shortDesc:"Crisp and tangy. Perfect for chutneys, pickles and raw mango recipes.",          image:"https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&q=80",  badge:"Great Value",       inStock:true, status:"active", stockQty:72, rating:4.7, reviews:156, origin:"Shettihalli, Hassan, Karnataka", weight:"~3 kg",    harvest:"May–July",   discount:22 },
-  { id:"2",  name:"Badami Mangoes",              category:"mango",     price:650,  originalPrice:800,  unit:"per dozen",         shortDesc:"Karnataka's own pride — sweet, fiber-free and creamy.",                           image:"https://images.unsplash.com/photo-1601493700631-2b16ec4b4716?w=600&q=80", badge:"Karnataka Special", inStock:true, status:"active", stockQty:60, rating:4.8, reviews:189, origin:"Shettihalli, Hassan, Karnataka", weight:"~2.8 kg",  harvest:"May–June",   discount:19 },
-  { id:"3",  name:"Malgova Mangoes",             category:"mango",     price:750,  originalPrice:950,  unit:"per dozen",         shortDesc:"Giant, pulpy and insanely sweet. The heavyweight champion.",                      image:"https://images.unsplash.com/photo-1591073113125-e46713c829ed?w=600&q=80", badge:"Giant Size",        inStock:true, status:"active", stockQty:36, rating:4.7, reviews:98,  origin:"Shettihalli, Hassan, Karnataka", weight:"~4.5 kg",  harvest:"June–July",  discount:21 },
-  { id:"4",  name:"Raspuri Mangoes",             category:"mango",     price:550,  originalPrice:700,  unit:"per dozen",         shortDesc:"The queen of Karnataka mangoes — juicy, fibre-free, with a royal golden hue.",    image:"https://images.unsplash.com/photo-1582655122842-8b9f0e2d0e3e?w=600&q=80", badge:"Queen of Mangoes",  inStock:true, status:"active", stockQty:45, rating:4.8, reviews:112, origin:"Shettihalli, Hassan, Karnataka", weight:"~2.5 kg",  harvest:"April–June", discount:21 },
-  { id:"5",  name:"Mallika Mangoes",             category:"mango",     price:600,  originalPrice:780,  unit:"per dozen",         shortDesc:"Intensely sweet with a hint of citrus. No fibres, pure joy.",                    image:"https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=600&q=80", badge:"Hybrid Delight",    inStock:true, status:"active", stockQty:40, rating:4.7, reviews:87,  origin:"Shettihalli, Hassan, Karnataka", weight:"~2.6 kg",  harvest:"May–June",   discount:23 },
-  { id:"6",  name:"Sendhura Mangoes",            category:"mango",     price:500,  originalPrice:650,  unit:"per dozen",         shortDesc:"Deep red-blushed skin, rich sweet pulp. A Karnataka classic.",                   image:"https://images.unsplash.com/photo-1568702846914-96b305d2aaeb?w=600&q=80", badge:"Farm Favourite",    inStock:true, status:"active", stockQty:50, rating:4.6, reviews:76,  origin:"Shettihalli, Hassan, Karnataka", weight:"~2.7 kg",  harvest:"May–July",   discount:23 },
-  { id:"7",  name:"Neelam Mangoes",              category:"mango",     price:420,  originalPrice:550,  unit:"per dozen",         shortDesc:"Small, golden, intensely fragrant. The last mango of the season.",                image:"https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&q=80",  badge:"Season Ender",      inStock:true, status:"active", stockQty:55, rating:4.6, reviews:94,  origin:"Shettihalli, Hassan, Karnataka", weight:"~2 kg",    harvest:"June–Aug",   discount:24 },
-  { id:"8",  name:"Farm-Fresh Jackfruit (whole)",category:"jackfruit", price:350,  originalPrice:450,  unit:"per piece (~5 kg)", shortDesc:"60-year-old heritage trees. Honey-golden bulbs with intense sweetness.",          image:"https://images.unsplash.com/photo-1519996529931-28324d5a630e?w=600&q=80", badge:"Heritage Trees",    inStock:true, status:"active", stockQty:24, rating:4.8, reviews:127, origin:"Shettihalli, Hassan, Karnataka", weight:"4–6 kg",   harvest:"May–Aug",    discount:22 },
-  { id:"9",  name:"Jackfruit Peeled",            category:"jackfruit", price:180,  originalPrice:240,  unit:"per kg",            shortDesc:"Ready-to-eat sweet jackfruit bulbs — cleaned, peeled and packed fresh.",           image:"https://images.unsplash.com/photo-1568702846914-96b305d2aaeb?w=600&q=80", badge:"Ready to Eat",      inStock:true, status:"active", stockQty:30, rating:4.7, reviews:88,  origin:"Shettihalli, Hassan, Karnataka", weight:"500g–2 kg", harvest:"May–Aug",    discount:25 },
-  { id:"10", name:"Raw Jackfruit (For Curry)",   category:"jackfruit", price:120,  originalPrice:160,  unit:"per kg",            shortDesc:"Cook-ready raw jackfruit pieces. Firm, meaty texture for curries.",               image:"https://images.unsplash.com/photo-1591073113125-e46713c829ed?w=600&q=80", badge:"Ready to Cook",     inStock:true, status:"active", stockQty:50, rating:4.6, reviews:88,  origin:"Shettihalli, Hassan, Karnataka", weight:"1–5 kg",   harvest:"Mar–June",   discount:25 },
-  { id:"11", name:"Kiru Nallikayi / Amla",       category:"seasonal",  price:80,   originalPrice:110,  unit:"per kg",            shortDesc:"Fresh Indian gooseberries — tangy, nutrient-packed, straight from the farm.",     image:"https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=600&q=80", badge:"Superfood",         inStock:true, status:"active", stockQty:40, rating:4.7, reviews:62,  origin:"Shettihalli, Hassan, Karnataka", weight:"500g / 1 kg / 2 kg", harvest:"Oct–Feb", discount:27 },
-  { id:"12", name:"Nerale Hannu / Jamun",        category:"seasonal",  price:120,  originalPrice:160,  unit:"per kg",            shortDesc:"Dark, juicy jamun berries — sweet-tart, deeply flavourful, seasonal and rare.",   image:"https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600&q=80", badge:"Rare & Seasonal",   inStock:true, status:"active", stockQty:20, rating:4.8, reviews:48,  origin:"Shettihalli, Hassan, Karnataka", weight:"500g / 1 kg", harvest:"June–July",  discount:25 },
-  { id:"13", name:"Mango Pickle",                category:"kitchen",   price:220,  originalPrice:280,  unit:"per 500g jar",      shortDesc:"Traditional spiced mango pickle — made from farm-fresh raw mangoes.",             image:"https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&q=80", badge:"Home Recipe",       inStock:true, status:"active", stockQty:35, rating:4.9, reviews:143, origin:"Shettihalli, Hassan, Karnataka", weight:"500g jar",  harvest:"Year-round", discount:21 },
-  { id:"14", name:"Puliyogare Gojju",            category:"kitchen",   price:180,  originalPrice:230,  unit:"per 300g jar",      shortDesc:"Authentic tamarind-spice paste for instant puliyogare rice. Zero preservatives.", image:"https://images.unsplash.com/photo-1596797038530-2c107229654b?w=600&q=80", badge:"Authentic Recipe",  inStock:true, status:"active", stockQty:28, rating:4.8, reviews:97,  origin:"Shettihalli, Hassan, Karnataka", weight:"300g jar",  harvest:"Year-round", discount:22 },
-  { id:"15", name:"Maavinkaayi Chitranna Gojju", category:"kitchen",   price:160,  originalPrice:210,  unit:"per 300g jar",      shortDesc:"Raw mango gojju for chitranna — tangy, spicy and utterly Karnataka.",            image:"https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=600&q=80", badge:"Karnataka Special", inStock:true, status:"active", stockQty:25, rating:4.8, reviews:74,  origin:"Shettihalli, Hassan, Karnataka", weight:"300g jar",  harvest:"Year-round", discount:24 },
-  { id:"16", name:"Mango Assortment Box",        category:"assortment",price:1299, originalPrice:1800, unit:"per gift box",       shortDesc:"Badami + Raspuri + Totapuri — curated and beautifully gift-packed.",             image:"https://images.unsplash.com/photo-1601493700631-2b16ec4b4716?w=600&q=80", badge:"Gift Box",          inStock:true, status:"active", stockQty:20, rating:5.0, reviews:76,  origin:"Shettihalli, Hassan, Karnataka", weight:"~3 kg mix", harvest:"May–June",   discount:28 },
-];
 
 // ── TABS ──────────────────────────────────────────────────────
 const TAB_TITLES = { overview:"Overview", products:"Products", add:"Add Product", orders:"Orders" };
@@ -225,7 +196,7 @@ function switchTab(tab, btn) {
 function renderOverview() {
   document.getElementById("stat-total").textContent = products.length;
   document.getElementById("stat-in").textContent    = products.filter(p => p.inStock && p.stockQty > 5 && p.status === "active").length;
-  document.getElementById("stat-low").textContent   = products.filter(p => p.inStock && p.stockQty > 0 && p.stockQty <= 5).length;
+  document.getElementById("stat-low").textContent   = products.filter(p => p.stockQty > 0 && p.stockQty <= 5).length;
   document.getElementById("stat-out").textContent   = products.filter(p => !p.inStock || p.stockQty === 0).length;
 
   const lowList = products.filter(p => p.stockQty <= 5);
@@ -238,15 +209,18 @@ function renderOverview() {
         </span>
       </div>`).join("");
 
-  document.getElementById("overviewTable").innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead>
-    <tbody>${products.map(p => `<tr>
-      <td><strong>${p.name}</strong></td>
-      <td><span class="badge-pill pill-gray">${p.category}</span></td>
-      <td>₹${p.price.toLocaleString("en-IN")} <small style="color:#9ca3af">/${p.unit}</small></td>
-      <td>${p.stockQty}</td>
-      <td>${statusPill(p)}</td>
-    </tr>`).join("")}</tbody></table></div>`;
+  document.getElementById("overviewTable").innerHTML = products.length === 0
+      ? '<p class="empty-msg" style="padding:20px">No products yet. Add them in the Add Product tab.</p>'
+      : `<div class="table-wrap"><table>
+        <thead><tr><th>Product</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead>
+        <tbody>${products.map(p => `<tr>
+          <td><strong>${p.name}</strong></td>
+          <td><span class="badge-pill pill-gray">${p.category}</span></td>
+          <td>₹${p.price.toLocaleString("en-IN")} <small style="color:#9ca3af">/${p.unit}</small></td>
+          <td>${p.stockQty}</td>
+          <td>${statusPill(p)}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>`;
 }
 
 function statusPill(p) {
@@ -261,11 +235,19 @@ function renderProductsTable() {
   const q   = (document.getElementById("searchInput")?.value || "").toLowerCase();
   const cat = document.getElementById("catFilter")?.value || "all";
   let list  = cat === "all" ? products : products.filter(p => p.category === cat);
-  if (q) list = list.filter(p => p.name.toLowerCase().includes(q) || p.category.includes(q));
+  if (q) list = list.filter(p => p.name.toLowerCase().includes(q));
 
   const wrap = document.getElementById("productsTable");
   if (!wrap) return;
-  if (list.length === 0) { wrap.innerHTML = '<p class="empty-msg" style="padding:20px">No products found.</p>'; return; }
+
+  if (products.length === 0) {
+    wrap.innerHTML = '<p class="empty-msg" style="padding:20px">⏳ Loading products from Sheet...</p>';
+    return;
+  }
+  if (list.length === 0) {
+    wrap.innerHTML = '<p class="empty-msg" style="padding:20px">No products match your search.</p>';
+    return;
+  }
 
   wrap.innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th>Name</th><th>Category</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead>
@@ -278,9 +260,9 @@ function renderProductsTable() {
             onchange="inlineUpdate('${p.id}','stockQty',this.value)" style="width:65px" /></td>
       <td>
         <select onchange="inlineUpdate('${p.id}','status',this.value)" class="inline-select">
-          <option value="active"      ${(p.status || "active") === "active"      ? "selected" : ""}>✅ Active</option>
-          <option value="coming_soon" ${p.status === "coming_soon"               ? "selected" : ""}>🔔 Coming Soon</option>
-          <option value="sold_out"    ${p.status === "sold_out"                  ? "selected" : ""}>❌ Sold Out</option>
+          <option value="active"      ${p.status === "active"      ? "selected" : ""}>✅ Active</option>
+          <option value="coming_soon" ${p.status === "coming_soon" ? "selected" : ""}>🔔 Coming Soon</option>
+          <option value="sold_out"    ${p.status === "sold_out"    ? "selected" : ""}>❌ Sold Out</option>
         </select>
       </td>
       <td><div class="tbl-actions">
@@ -297,26 +279,21 @@ function renderProductsTable() {
   });
 }
 
-// inlineUpdate — uses onchange (fires on blur/enter, NOT on every keystroke)
+// onchange fires on blur — not on every keystroke
 function inlineUpdate(id, field, value) {
   const p = products.find(p => p.id === id);
   if (!p) return;
-
   if (field === "price" || field === "stockQty") {
     p[field] = Number(value);
-    if (field === "stockQty" && Number(value) === 0)  { p.inStock = false; p.status = "sold_out"; }
-    if (field === "stockQty" && Number(value) > 0 && p.status === "sold_out") { p.inStock = true; p.status = "active"; }
+    if (field === "stockQty" && Number(value) === 0) { p.inStock = false; p.status = "sold_out"; }
+    if (field === "stockQty" && Number(value) > 0  && p.status === "sold_out") { p.inStock = true; p.status = "active"; }
   } else if (field === "status") {
     p.status  = value;
     p.inStock = (value === "active");
-  } else {
-    p[field] = value;
   }
-
-  dataFromSheet = true; // user made a real change — safe to sync
-  saveData();           // debounced — waits 1.5s before hitting Sheet
   renderOverview();
-  toast("✅ Saved! Syncing to Sheet...");
+  toast("💾 Saving...");
+  syncToSheet(); // debounced 1.5s
 }
 
 // ── ADD / EDIT ────────────────────────────────────────────────
@@ -324,7 +301,7 @@ function saveProduct(e) {
   e.preventDefault();
   const id     = document.getElementById("editId").value;
   const status = document.getElementById("f-status").value;
-  const data   = {
+  const data = {
     name:          document.getElementById("f-name").value.trim(),
     category:      document.getElementById("f-cat").value,
     price:         Number(document.getElementById("f-price").value),
@@ -336,15 +313,10 @@ function saveProduct(e) {
     inStock:       status === "active",
     image:         document.getElementById("f-img").value.trim(),
     shortDesc:     document.getElementById("f-short").value.trim(),
-    origin:        document.getElementById("f-origin").value.trim(),
+    origin:        document.getElementById("f-origin").value.trim() || "Shettihalli, Karnataka",
     weight:        document.getElementById("f-weight").value.trim(),
     harvest:       document.getElementById("f-harvest").value.trim(),
-    rating:  4.8,
-    reviews: 0,
-    discount: data_discount(
-        Number(document.getElementById("f-price").value),
-        Number(document.getElementById("f-oprice").value)
-    ),
+    discount:      calcDiscount(Number(document.getElementById("f-price").value), Number(document.getElementById("f-oprice").value)),
   };
 
   if (id) {
@@ -357,8 +329,7 @@ function saveProduct(e) {
     toast("✅ Added!");
   }
 
-  dataFromSheet = true;
-  saveData();
+  syncToSheet();
   e.target.reset();
   document.getElementById("imgPreview").classList.add("hidden");
   document.getElementById("editId").value              = "";
@@ -369,7 +340,7 @@ function saveProduct(e) {
   renderProductsTable();
 }
 
-function data_discount(price, orig) {
+function calcDiscount(price, orig) {
   if (!orig || orig <= price) return 0;
   return Math.round((orig - price) / orig * 100);
 }
@@ -412,7 +383,7 @@ function cancelEdit() {
 }
 
 function previewImg() {
-  const url  = document.getElementById("f-img").value.trim();
+  const url = document.getElementById("f-img").value.trim();
   const prev = document.getElementById("imgPreview");
   if (url) { prev.src = url; prev.classList.remove("hidden"); }
   else toast("⚠️ Paste an image URL first");
@@ -427,26 +398,21 @@ function askDelete(id) {
 }
 
 function confirmDelete() {
-  products      = products.filter(p => p.id !== deletePendingId);
-  dataFromSheet = true;
-  saveData();
+  products = products.filter(p => p.id !== deletePendingId);
+  syncToSheet();
   closeDialog("confirmDialog");
   renderProductsTable();
   renderOverview();
-  toast("🗑 Deleted! Syncing to Sheet...");
+  toast("🗑 Deleted!");
 }
 
 // ── ORDERS ────────────────────────────────────────────────────
 function renderOrdersTable() {
-  const wrap = document.getElementById("ordersTable");
-  if (!wrap) return;
   const savedOrders = localStorage.getItem(ORDERS_KEY);
   orders = savedOrders ? JSON.parse(savedOrders) : [];
-
-  if (orders.length === 0) {
-    wrap.innerHTML = '<p class="empty-msg">No orders logged yet.</p>';
-    return;
-  }
+  const wrap = document.getElementById("ordersTable");
+  if (!wrap) return;
+  if (orders.length === 0) { wrap.innerHTML = '<p class="empty-msg">No orders logged yet.</p>'; return; }
   wrap.innerHTML = `<div class="table-wrap"><table>
     <thead><tr><th>#</th><th>Customer</th><th>Phone</th><th>Items</th><th>Total</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead>
     <tbody>${orders.map((o, i) => `<tr>
@@ -455,14 +421,11 @@ function renderOrdersTable() {
       <td style="max-width:160px;font-size:13px">${o.items}</td>
       <td><strong>₹${Number(o.total).toLocaleString("en-IN")}</strong></td>
       <td><select onchange="updateOrderStatus(${i},this.value)" style="font-size:12px;padding:4px 8px;border:1px solid #e5e7eb;border-radius:6px">
-        ${["pending","confirmed","shipped","delivered","cancelled"].map(s =>
-      `<option ${o.status === s ? "selected" : ""}>${s}</option>`
-  ).join("")}
+        ${["pending","confirmed","shipped","delivered","cancelled"].map(s => `<option ${o.status===s?"selected":""}>${s}</option>`).join("")}
       </select></td>
       <td style="font-size:12px;color:#9ca3af">${o.date}</td>
       <td>
-        <a href="https://wa.me/${o.phone.replace(/\D/g,"")}?text=${encodeURIComponent("Hi " + o.name + "! Your Shettihalli Naturals order: " + o.items)}"
-           target="_blank" style="font-size:18px">📱</a>
+        <a href="https://wa.me/${o.phone.replace(/\D/g,"")}?text=${encodeURIComponent("Hi "+o.name+"! Your order: "+o.items)}" target="_blank" style="font-size:18px">📱</a>
         <button class="btn-del" onclick="deleteOrder(${i})" style="margin-left:6px">🗑</button>
       </td>
     </tr>`).join("")}</tbody></table></div>`;
@@ -480,7 +443,7 @@ function saveOrder(e) {
     status: document.getElementById("o-status").value,
     date:   new Date().toLocaleDateString("en-IN"),
   });
-  saveOrdersData();
+  localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
   closeDialog("orderDialog");
   document.getElementById("orderForm").reset();
   renderOrdersTable();
@@ -489,24 +452,22 @@ function saveOrder(e) {
 
 function updateOrderStatus(i, status) {
   orders[i].status = status;
-  saveOrdersData();
-  toast("✅ Status updated");
+  localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+  toast("✅ Updated");
 }
 
 function deleteOrder(i) {
   orders.splice(i, 1);
-  saveOrdersData();
+  localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
   renderOrdersTable();
-  toast("🗑 Order removed");
+  toast("🗑 Removed");
 }
 
 // ── EXPORT ────────────────────────────────────────────────────
 function exportJSON() {
   const blob = new Blob([JSON.stringify(products, null, 2)], { type: "application/json" });
-  const a    = document.createElement("a");
-  a.href     = URL.createObjectURL(blob);
-  a.download = "shettihalli-products.json";
-  a.click();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "products.json"; a.click();
   toast("📤 Downloaded!");
 }
 
@@ -516,7 +477,6 @@ function closeDialog(id) { document.getElementById(id).classList.remove("open");
 
 function toast(msg) {
   const t = document.getElementById("adminToast");
-  t.textContent = msg;
-  t.classList.add("show");
+  t.textContent = msg; t.classList.add("show");
   setTimeout(() => t.classList.remove("show"), 2600);
 }

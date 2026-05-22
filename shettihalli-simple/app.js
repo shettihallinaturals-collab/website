@@ -1,38 +1,16 @@
 // ═══════════════════════════════════════════════════════════════
 //  SHETTIHALLI NATURALS — app.js
+//  Single source of truth: Google Sheet ONLY. No fallbacks.
 // ═══════════════════════════════════════════════════════════════
 
 const WA_NUMBER     = "918073647211";
 const SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTu_9vQWCquS52J_GrYcCLoGRwDCe9HUykCqqniSYNnuHj1Ge9a76H_M8j_uDNEdQ6xCiKIAB-WDY-X/pub?output=csv";
-const STORAGE_KEY   = "sn_products";
-const STORAGE_VER   = "v6"; // bump to force-refresh all browsers
 
-const FALLBACK_PRODUCTS = [
-    { id:"1",  name:"Totapuri Mangoes",            category:"mango",     price:450,  originalPrice:580,  unit:"per dozen",         shortDesc:"Crisp and tangy. Perfect for chutneys, pickles and raw mango recipes.",          image:"https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&q=80",  badge:"Great Value",       inStock:true, status:"active",      stockQty:72, rating:4.7, reviews:156, origin:"Shettihalli, Hassan, Karnataka", weight:"~3 kg",    harvest:"May–July",   discount:22 },
-    { id:"2",  name:"Badami Mangoes",              category:"mango",     price:650,  originalPrice:800,  unit:"per dozen",         shortDesc:"Karnataka's own pride — sweet, fiber-free and creamy. The Alphonso of the South.", image:"https://images.unsplash.com/photo-1601493700631-2b16ec4b4716?w=600&q=80", badge:"Karnataka Special", inStock:true, status:"active",      stockQty:60, rating:4.8, reviews:189, origin:"Shettihalli, Hassan, Karnataka", weight:"~2.8 kg",  harvest:"May–June",   discount:19 },
-    { id:"3",  name:"Malgova Mangoes",             category:"mango",     price:750,  originalPrice:950,  unit:"per dozen",         shortDesc:"Giant, pulpy and insanely sweet. The heavyweight champion of South Indian mangoes.", image:"https://images.unsplash.com/photo-1591073113125-e46713c829ed?w=600&q=80", badge:"Giant Size",        inStock:true, status:"active",      stockQty:36, rating:4.7, reviews:98,  origin:"Shettihalli, Hassan, Karnataka", weight:"~4.5 kg",  harvest:"June–July",  discount:21 },
-    { id:"4",  name:"Raspuri Mangoes",             category:"mango",     price:550,  originalPrice:700,  unit:"per dozen",         shortDesc:"The queen of Karnataka mangoes — juicy, fibre-free, with a royal golden hue.",    image:"https://images.unsplash.com/photo-1582655122842-8b9f0e2d0e3e?w=600&q=80", badge:"Queen of Mangoes",  inStock:true, status:"active",      stockQty:45, rating:4.8, reviews:112, origin:"Shettihalli, Hassan, Karnataka", weight:"~2.5 kg",  harvest:"April–June", discount:21 },
-    { id:"5",  name:"Mallika Mangoes",             category:"mango",     price:600,  originalPrice:780,  unit:"per dozen",         shortDesc:"A delightful hybrid — intensely sweet with a hint of citrus. No fibres, pure joy.", image:"https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=600&q=80", badge:"Hybrid Delight",    inStock:true, status:"active",      stockQty:40, rating:4.7, reviews:87,  origin:"Shettihalli, Hassan, Karnataka", weight:"~2.6 kg",  harvest:"May–June",   discount:23 },
-    { id:"6",  name:"Sendhura Mangoes",            category:"mango",     price:500,  originalPrice:650,  unit:"per dozen",         shortDesc:"Deep red-blushed skin, rich sweet pulp. A Karnataka classic loved for generations.", image:"https://images.unsplash.com/photo-1568702846914-96b305d2aaeb?w=600&q=80", badge:"Farm Favourite",    inStock:true, status:"active",      stockQty:50, rating:4.6, reviews:76,  origin:"Shettihalli, Hassan, Karnataka", weight:"~2.7 kg",  harvest:"May–July",   discount:23 },
-    { id:"7",  name:"Neelam Mangoes",              category:"mango",     price:420,  originalPrice:550,  unit:"per dozen",         shortDesc:"Small, golden, intensely fragrant. The last mango of the season — worth the wait.", image:"https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&q=80",  badge:"Season Ender",      inStock:true, status:"active",      stockQty:55, rating:4.6, reviews:94,  origin:"Shettihalli, Hassan, Karnataka", weight:"~2 kg",    harvest:"June–August",discount:24 },
-    { id:"8",  name:"Farm-Fresh Jackfruit (whole)",category:"jackfruit", price:350,  originalPrice:450,  unit:"per piece (~5 kg)", shortDesc:"60-year-old heritage trees. Honey-golden bulbs with intense tropical sweetness.",  image:"https://images.unsplash.com/photo-1519996529931-28324d5a630e?w=600&q=80", badge:"Heritage Trees",    inStock:true, status:"active",      stockQty:24, rating:4.8, reviews:127, origin:"Shettihalli, Hassan, Karnataka", weight:"4–6 kg",   harvest:"May–Aug",    discount:22 },
-    { id:"9",  name:"Jackfruit Peeled",            category:"jackfruit", price:180,  originalPrice:240,  unit:"per kg",            shortDesc:"Ready-to-eat sweet jackfruit bulbs — cleaned, peeled and packed fresh.",           image:"https://images.unsplash.com/photo-1568702846914-96b305d2aaeb?w=600&q=80", badge:"Ready to Eat",      inStock:true, status:"active",      stockQty:30, rating:4.7, reviews:88,  origin:"Shettihalli, Hassan, Karnataka", weight:"500g, 1 kg, 2 kg", harvest:"May–Aug",   discount:25 },
-    { id:"10", name:"Raw Jackfruit (For Curry)",   category:"jackfruit", price:120,  originalPrice:160,  unit:"per kg",            shortDesc:"Cook-ready raw jackfruit pieces. Firm, meaty texture for curries and biryani.",   image:"https://images.unsplash.com/photo-1591073113125-e46713c829ed?w=600&q=80", badge:"Ready to Cook",     inStock:true, status:"active",      stockQty:50, rating:4.6, reviews:88,  origin:"Shettihalli, Hassan, Karnataka", weight:"1–5 kg",   harvest:"Mar–June",   discount:25 },
-    { id:"11", name:"Kiru Nallikayi / Amla",       category:"seasonal",  price:80,   originalPrice:110,  unit:"per kg",            shortDesc:"Fresh Indian gooseberries — tangy, nutrient-packed, straight from the farm.",     image:"https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=600&q=80", badge:"Superfood",         inStock:true, status:"active",      stockQty:40, rating:4.7, reviews:62,  origin:"Shettihalli, Hassan, Karnataka", weight:"500g / 1 kg / 2 kg", harvest:"Oct–Feb", discount:27 },
-    { id:"12", name:"Nerale Hannu / Jamun",        category:"seasonal",  price:120,  originalPrice:160,  unit:"per kg",            shortDesc:"Dark, juicy jamun berries — sweet-tart, deeply flavourful, seasonal and rare.",   image:"https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600&q=80", badge:"Rare & Seasonal",   inStock:true, status:"active",      stockQty:20, rating:4.8, reviews:48,  origin:"Shettihalli, Hassan, Karnataka", weight:"500g / 1 kg", harvest:"June–July",  discount:25 },
-    { id:"13", name:"Mango Pickle",                category:"kitchen",   price:220,  originalPrice:280,  unit:"per 500g jar",      shortDesc:"Traditional spiced mango pickle — made from farm-fresh raw mangoes, aged to perfection.", image:"https://images.unsplash.com/photo-1601050690597-df0568f70950?w=600&q=80", badge:"Home Recipe",  inStock:true, status:"active",      stockQty:35, rating:4.9, reviews:143, origin:"Shettihalli, Hassan, Karnataka", weight:"500g jar",  harvest:"Year-round", discount:21 },
-    { id:"14", name:"Puliyogare Gojju",            category:"kitchen",   price:180,  originalPrice:230,  unit:"per 300g jar",      shortDesc:"Authentic tamarind-spice paste for instant puliyogare rice. Zero preservatives.", image:"https://images.unsplash.com/photo-1596797038530-2c107229654b?w=600&q=80", badge:"Authentic Recipe",  inStock:true, status:"active",      stockQty:28, rating:4.8, reviews:97,  origin:"Shettihalli, Hassan, Karnataka", weight:"300g jar",  harvest:"Year-round", discount:22 },
-    { id:"15", name:"Maavinkaayi Chitranna Gojju", category:"kitchen",   price:160,  originalPrice:210,  unit:"per 300g jar",      shortDesc:"Raw mango gojju for chitranna (lemon rice) — tangy, spicy and utterly Karnataka.", image:"https://images.unsplash.com/photo-1567620905732-2d1ec7ab7445?w=600&q=80", badge:"Karnataka Special", inStock:true, status:"active",      stockQty:25, rating:4.8, reviews:74,  origin:"Shettihalli, Hassan, Karnataka", weight:"300g jar",  harvest:"Year-round", discount:24 },
-    { id:"16", name:"Mango Assortment Box",        category:"assortment",price:1299, originalPrice:1800, unit:"per gift box",       shortDesc:"Badami + Raspuri + Totapuri — curated and beautifully gift-packed.",             image:"https://images.unsplash.com/photo-1601493700631-2b16ec4b4716?w=600&q=80", badge:"Gift Box",          inStock:true, status:"active",      stockQty:20, rating:5.0, reviews:76,  origin:"Shettihalli, Hassan, Karnataka", weight:"~3 kg mix", harvest:"May–June",   discount:28 },
-];
-
-// ── STATE ─────────────────────────────────────────────────────
 let allProducts  = [];
 let activeFilter = "all";
 let modalProduct = null;
 let modalQty     = 1;
 
-// ── INIT ──────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
     initNavbar();
     initCountdown();
@@ -67,99 +45,102 @@ function initCountdown() {
     tick(); setInterval(tick, 1000);
 }
 
-// ── LOAD PRODUCTS — always fetches fresh from Sheet ──────────
+// ── LOAD PRODUCTS — Sheet only, no fallback ───────────────────
 async function loadProducts() {
     const loading = document.getElementById("productsLoading");
+    const empty   = document.getElementById("productsEmpty");
     loading.style.display = "flex";
 
-    if (SHEET_CSV_URL) {
-        // ALWAYS fetch from Sheet — no localStorage cache for live data
-        // This ensures sold_out, stock changes reflect immediately
-        try {
-            const res  = await fetch(SHEET_CSV_URL + "&t=" + Date.now());
-            const text = await res.text();
-            const rows = csvToObjects(text);
-            if (rows.length > 0) {
-                const parsed = rows.map(sheetRowToProduct).filter(p => p.name);
-                if (parsed.length > 0) {
-                    allProducts = parsed;
-                    loading.style.display = "none";
-                    renderProducts();
-                    return;
-                }
-            }
-        } catch (err) {
-            console.warn("Sheet fetch failed, using fallback:", err);
-        }
+    try {
+        const res  = await fetch(SHEET_CSV_URL + "&t=" + Date.now());
+        if (!res.ok) throw new Error("Sheet fetch failed: " + res.status);
+        const text = await res.text();
+        const rows = parseCSV(text);
+        const parsed = rows.map(rowToProduct).filter(p => p.id && p.name);
+
+        if (parsed.length === 0) throw new Error("No valid products in sheet");
+
+        allProducts = parsed;
+        loading.style.display = "none";
+        renderProducts();
+    } catch (err) {
+        console.error("Failed to load products:", err);
+        loading.style.display = "none";
+        empty.style.display   = "block";
+        empty.innerHTML = `
+      <p style="font-size:40px">🥭</p>
+      <p style="font-size:18px;color:#15803d;font-weight:600">Loading products...</p>
+      <p style="color:#6b7280;margin-top:8px">Please refresh the page.</p>
+      <button onclick="location.reload()" style="margin-top:16px;padding:12px 28px;background:#15803d;color:#fff;border:none;border-radius:50px;font-weight:700;cursor:pointer;font-size:15px">
+        🔄 Refresh
+      </button>`;
     }
-
-    // Sheet not connected or failed — use localStorage or hardcoded fallback
-    allProducts = getLocalOrFallback();
-    loading.style.display = "none";
-    renderProducts();
 }
 
-function getLocalOrFallback() {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) { try { return JSON.parse(saved); } catch {} }
-    return JSON.parse(JSON.stringify(FALLBACK_PRODUCTS));
-}
-
-// ── CSV HELPERS ───────────────────────────────────────────────
-function csvToObjects(csv) {
+// ── CSV PARSER ────────────────────────────────────────────────
+function parseCSV(csv) {
     const lines = csv.trim().split("\n");
     if (lines.length < 2) return [];
-    const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g,""));
+    const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, "").trim());
     return lines.slice(1).map(line => {
-        const vals = line.match(/(".*?"|[^,]+)(?=,|$)/g) || [];
-        const obj  = {};
-        headers.forEach((h,i) => { obj[h] = (vals[i]||"").replace(/^"|"$/g,"").trim(); });
+        // Handle quoted fields with commas inside
+        const vals = [];
+        let cur = "", inQ = false;
+        for (let i = 0; i < line.length; i++) {
+            if (line[i] === '"') { inQ = !inQ; continue; }
+            if (line[i] === "," && !inQ) { vals.push(cur.trim()); cur = ""; continue; }
+            cur += line[i];
+        }
+        vals.push(cur.trim());
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = (vals[i] || "").trim(); });
         return obj;
     });
 }
 
-function sheetRowToProduct(row) {
-    // Valid category values
-    const VALID_CATS = ["mango","jackfruit","seasonal","kitchen","assortment"];
-    // Valid status values
-    const VALID_STATUS = ["active","coming_soon","sold_out"];
-    // Valid inStock values
-    const BOOL_VALS = ["true","false","TRUE","FALSE","0","1"];
+// ── ROW TO PRODUCT — strict validation ───────────────────────
+function rowToProduct(row) {
+    const VALID_CATS    = ["mango","jackfruit","seasonal","kitchen","assortment"];
+    const VALID_STATUS  = ["active","coming_soon","sold_out"];
 
-    // Detect leaked boolean/number strings in text fields
-    function cleanStr(val, fallback) {
-        if (!val && val !== 0) return fallback;
+    // A valid text value must not be a boolean, number, or known non-text value
+    function text(val, fallback = "") {
+        if (!val) return fallback;
         const s = String(val).trim();
-        if (!s) return fallback;
-        // Reject raw booleans, plain numbers, known status/category words in wrong columns
-        if (BOOL_VALS.includes(s)) return fallback;
-        if (!isNaN(Number(s)) && s !== "") return fallback; // pure number in text field
+        if (!s || s === "TRUE" || s === "FALSE" || s === "true" || s === "false") return fallback;
+        if (!isNaN(Number(s))) return fallback; // pure number in a text field = wrong column
         return s;
+    }
+
+    function num(val, fallback = 0) {
+        const n = Number(String(val).trim());
+        return isNaN(n) ? fallback : n;
     }
 
     const rawCat    = String(row.category || "").trim().toLowerCase();
     const rawStatus = String(row.status   || "").trim().toLowerCase();
     const rawStock  = String(row.inStock  || "true").trim().toUpperCase();
 
+    const status  = VALID_STATUS.includes(rawStatus) ? rawStatus : "active";
+    const inStock = rawStock === "TRUE" || rawStock === "1";
+
     return {
-        id:            row.id || String(Math.random()),
-        name:          cleanStr(row.name, ""),
+        id:            String(row.id || "").trim(),
+        name:          text(row.name),
         category:      VALID_CATS.includes(rawCat) ? rawCat : "mango",
-        price:         Number(row.price) || 0,
-        originalPrice: Number(row.originalPrice) || undefined,
-        unit:          cleanStr(row.unit, "per piece"),
-        shortDesc:     cleanStr(row.shortDesc || row.description, ""),
-        image:         cleanStr(row.image, "https://images.unsplash.com/photo-1601493700631-2b16ec4b4716?w=600&q=80"),
-        badge:         cleanStr(row.badge, ""),
-        inStock:       rawStock !== "FALSE" && rawStock !== "0",
-        status:        VALID_STATUS.includes(rawStatus) ? rawStatus : "active",
-        stockQty:      Number(row.stockQty) || 0,
-        rating:        Number(row.rating)   || 4.8,
-        reviews:       Number(row.reviews)  || 0,
-        origin:        cleanStr(row.origin, "Shettihalli, Karnataka"),
-        weight:        cleanStr(row.weight, ""),
-        harvest:       cleanStr(row.harvest, ""),
-        discount:      Number(row.discount) || 0,
+        price:         num(row.price),
+        originalPrice: num(row.originalPrice) || undefined,
+        unit:          text(row.unit, "per piece"),
+        shortDesc:     text(row.shortDesc),
+        image:         text(row.image),
+        badge:         text(row.badge),
+        inStock,
+        status,
+        stockQty:      num(row.stockQty),
+        origin:        text(row.origin, "Shettihalli, Karnataka"),
+        weight:        text(row.weight),
+        harvest:       text(row.harvest),
+        discount:      num(row.discount),
     };
 }
 
@@ -167,53 +148,56 @@ function sheetRowToProduct(row) {
 function renderProducts() {
     const grid  = document.getElementById("productsGrid");
     const empty = document.getElementById("productsEmpty");
-    const list  = activeFilter === "all" ? allProducts : allProducts.filter(p => p.category === activeFilter);
+    const list  = activeFilter === "all"
+        ? allProducts
+        : allProducts.filter(p => p.category === activeFilter);
 
-    if (list.length === 0) { grid.innerHTML = ""; empty.style.display = "block"; return; }
+    if (list.length === 0) {
+        grid.innerHTML    = "";
+        empty.style.display = "block";
+        empty.innerHTML   = "<p>🔍 No products in this category.</p>";
+        return;
+    }
     empty.style.display = "none";
-    grid.innerHTML = list.map(p => productCardHTML(p)).join("");
+    grid.innerHTML = list.map(productCardHTML).join("");
 
     grid.querySelectorAll(".card-btn-cart").forEach(btn => {
         btn.addEventListener("click", e => {
             const p = allProducts.find(p => p.id === e.currentTarget.dataset.id);
-            if (p && getStatusInfo(p).canOrder) openModal(p);
+            if (p && getStatus(p).canOrder) openModal(p);
         });
     });
     grid.querySelectorAll(".card-btn-wa").forEach(btn => {
         btn.addEventListener("click", e => {
             const p = allProducts.find(p => p.id === e.currentTarget.dataset.id);
-            if (p && getStatusInfo(p).canOrder) quickWhatsApp(p, 1);
+            if (p && getStatus(p).canOrder) quickWhatsApp(p, 1);
         });
     });
     grid.querySelectorAll(".product-card").forEach(card => {
         card.addEventListener("click", e => {
             if (e.target.closest("button")) return;
             const p = allProducts.find(p => p.id === card.dataset.id);
-            if (p && getStatusInfo(p).canOrder) openModal(p);
+            if (p && getStatus(p).canOrder) openModal(p);
         });
     });
 }
 
-function getStatusInfo(p) {
-    const st = (p.status || "active").toLowerCase().trim();
-    if (st === "coming_soon" || st === "coming soon")
+function getStatus(p) {
+    if (p.status === "coming_soon")
         return { label:"Coming Soon", cls:"badge-coming", canOrder: false };
-    // sold_out status OR inStock false OR stockQty 0 → Sold Out
-    if (st === "sold_out" || p.inStock === false || p.inStock === "false" || Number(p.stockQty) === 0)
+    if (p.status === "sold_out" || !p.inStock || p.stockQty === 0)
         return { label:"Sold Out", cls:"badge-out", canOrder: false };
-    if (Number(p.stockQty) <= 5)
+    if (p.stockQty <= 5)
         return { label:`Only ${p.stockQty} left!`, cls:"badge-low", canOrder: true };
     return { label:"In Stock", cls:"badge-instock", canOrder: true };
 }
 
 function productCardHTML(p) {
-    const s     = getStatusInfo(p);
-
-
+    const s = getStatus(p);
     return `
   <div class="product-card" data-id="${p.id}">
     <div class="card-img-wrap">
-      <img src="${p.image}" alt="${p.name}" loading="lazy" />
+      ${p.image ? `<img src="${p.image}" alt="${p.name}" loading="lazy" />` : `<div style="width:100%;height:100%;background:#f0fdf4;display:flex;align-items:center;justify-content:center;font-size:48px">🥭</div>`}
       <div class="card-badges">
         ${p.badge ? `<span class="badge badge-label">${p.badge}</span>` : ""}
         ${p.discount && s.canOrder ? `<span class="badge badge-discount">−${p.discount}%</span>` : ""}
@@ -222,22 +206,18 @@ function productCardHTML(p) {
     </div>
     <div class="card-body">
       <div class="card-name">${p.name}</div>
-      <div class="card-desc">${p.shortDesc}</div>
-      <div class="card-price-row">
-        <div>
-          <div class="card-price">₹${p.price.toLocaleString("en-IN")}</div>
-          <div style="display:flex;gap:6px;align-items:center">
-            ${p.originalPrice && s.canOrder ? `<span class="card-original">₹${p.originalPrice.toLocaleString("en-IN")}</span>` : ""}
-            <span class="card-unit">${p.unit}</span>
-          </div>
-        </div>
+      ${p.shortDesc ? `<div class="card-desc">${p.shortDesc}</div>` : ""}
+      <div class="card-price">₹${p.price.toLocaleString("en-IN")}</div>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px">
+        ${p.originalPrice && s.canOrder ? `<span class="card-original">₹${p.originalPrice.toLocaleString("en-IN")}</span>` : ""}
+        <span class="card-unit">${p.unit}</span>
       </div>
       <div class="card-btns">
-        <button class="card-btn-cart ${!s.canOrder ? 'btn-disabled' : ''}"
+        <button class="card-btn-cart ${!s.canOrder ? "btn-disabled" : ""}"
           data-id="${p.id}" ${!s.canOrder ? "disabled" : ""}>
           ${s.canOrder ? "🛒 Order Now" : s.label === "Coming Soon" ? "🔔 Coming Soon" : "❌ Sold Out"}
         </button>
-        ${s.canOrder ? `<button class="card-btn-wa" data-id="${p.id}" title="Quick WhatsApp order">⚡</button>` : ""}
+        ${s.canOrder ? `<button class="card-btn-wa" data-id="${p.id}" title="Quick WhatsApp">⚡</button>` : ""}
       </div>
       ${p.origin ? `<div class="card-origin">📍 ${p.origin}</div>` : ""}
     </div>
@@ -265,9 +245,9 @@ function initModal() {
     document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
 }
 
-function openModal(product) {
-    if (!product) return;
-    modalProduct = product; modalQty = 1;
+function openModal(p) {
+    if (!p) return;
+    modalProduct = p; modalQty = 1;
     renderModal();
     document.getElementById("productModal").classList.add("open");
     document.body.style.overflow = "hidden";
@@ -279,11 +259,13 @@ function closeModal() {
 }
 
 function renderModal() {
-    const p     = modalProduct;
+    const p = modalProduct;
     const total = (p.price * modalQty).toLocaleString("en-IN");
     document.getElementById("modalContent").innerHTML = `
     <div class="modal-img-wrap">
-      <img src="${p.image}" alt="${p.name}" class="modal-img" />
+      ${p.image
+        ? `<img src="${p.image}" alt="${p.name}" class="modal-img" />`
+        : `<div style="width:100%;height:220px;background:#f0fdf4;display:flex;align-items:center;justify-content:center;font-size:72px">🥭</div>`}
     </div>
     <div class="modal-body">
       <h2 class="modal-name">${p.name}</h2>
@@ -292,7 +274,7 @@ function renderModal() {
         ${p.originalPrice ? `<span class="modal-original">₹${p.originalPrice.toLocaleString("en-IN")}</span>` : ""}
         <span class="modal-unit">/ ${p.unit}</span>
       </div>
-      <p class="modal-desc">${p.shortDesc}</p>
+      ${p.shortDesc ? `<p class="modal-desc">${p.shortDesc}</p>` : ""}
       <div class="modal-meta">
         ${p.origin  ? `<div class="modal-meta-item"><small>📍 Origin</small><span>${p.origin}</span></div>` : ""}
         ${p.weight  ? `<div class="modal-meta-item"><small>⚖️ Weight</small><span>${p.weight}</span></div>` : ""}
@@ -312,38 +294,33 @@ function renderModal() {
         <a href="${buildWALink(p, modalQty)}" target="_blank" class="btn btn-wa btn-block" id="modalWABtn">
           💬 Order via WhatsApp — ₹<span id="modalBtnTotal">${total}</span>
         </a>
-        <button class="btn btn-green btn-block" onclick="copyOrderToClipboard()">📋 Copy Order Details</button>
+        <button class="btn btn-green btn-block" onclick="copyOrder()">📋 Copy Order Details</button>
       </div>
     </div>`;
-
     document.getElementById("qtyMinus").addEventListener("click", () => updateQty(-1));
     document.getElementById("qtyPlus").addEventListener("click",  () => updateQty(1));
 }
 
-function updateQty(delta) {
-    modalQty = Math.max(1, modalQty + delta);
-    document.getElementById("qtyVal").textContent       = modalQty;
+function updateQty(d) {
+    modalQty = Math.max(1, modalQty + d);
+    document.getElementById("qtyVal").textContent      = modalQty;
     const total = (modalProduct.price * modalQty).toLocaleString("en-IN");
-    document.getElementById("qtyTotal").textContent     = "₹" + total;
+    document.getElementById("qtyTotal").textContent    = "₹" + total;
     document.getElementById("modalBtnTotal").textContent = total;
     document.getElementById("modalWABtn").href           = buildWALink(modalProduct, modalQty);
 }
 
-function buildWALink(product, qty) {
-    const msg = `🥭 *Order — Shettihalli Naturals*\n\n`
-        + `📦 *${product.name}*\n`
-        + `Quantity: ${qty} ${product.unit}\n`
-        + `Price: ₹${product.price.toLocaleString("en-IN")} × ${qty} = *₹${(product.price * qty).toLocaleString("en-IN")}*\n\n`
-        + `Please confirm availability and delivery details. Thank you! 🙏`;
+function buildWALink(p, qty) {
+    const msg = `🥭 *Order — Shettihalli Naturals*\n\n📦 *${p.name}*\nQty: ${qty} ${p.unit}\nTotal: *₹${(p.price * qty).toLocaleString("en-IN")}*\n\nPlease confirm. Thank you! 🙏`;
     return `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(msg)}`;
 }
 
-function quickWhatsApp(product, qty) { window.open(buildWALink(product, qty), "_blank"); }
+function quickWhatsApp(p, qty) { window.open(buildWALink(p, qty), "_blank"); }
 
-function copyOrderToClipboard() {
-    const p    = modalProduct;
-    const text = `Order: ${p.name}\nQty: ${modalQty} ${p.unit}\nTotal: ₹${(p.price * modalQty).toLocaleString("en-IN")}\nPhone: +${WA_NUMBER}`;
-    navigator.clipboard.writeText(text).then(() => showToast("Order details copied! ✓"));
+function copyOrder() {
+    const p = modalProduct;
+    navigator.clipboard.writeText(`Order: ${p.name}\nQty: ${modalQty} ${p.unit}\nTotal: ₹${(p.price * modalQty).toLocaleString("en-IN")}\nWhatsApp: +${WA_NUMBER}`)
+        .then(() => showToast("Copied! ✓"));
 }
 
 // ── CONTACT FORM ──────────────────────────────────────────────
@@ -365,7 +342,6 @@ function initContactForm() {
 function showToast(msg) {
     let t = document.querySelector(".toast");
     if (!t) { t = document.createElement("div"); t.className = "toast"; document.body.appendChild(t); }
-    t.textContent = msg;
-    t.classList.add("show");
+    t.textContent = msg; t.classList.add("show");
     setTimeout(() => t.classList.remove("show"), 2800);
 }
